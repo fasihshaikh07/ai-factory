@@ -1,0 +1,17 @@
+# Copy to ~/.factory/projects/<name>.yaml and edit. No secrets in this file.
+project: shop-api               # lowercase name you'll pass to --project
+repo: /home/<you>/code/shop-api   # must be inside Linux (not /mnt/c/...)
+baseBranch: main
+stack: dotnet
+dotnet:
+  sdkImage: mcr.microsoft.com/dotnet/sdk:8.0   # match the repo's global.json
+  solution: ShopApi.sln                     # optional
+database:                          # throwaway Postgres for tests (never your real DB)
+  image: postgres:16-alpine
+  name: app_test
+  producerEnv:                     # only the test container gets these
+    ConnectionStrings__DefaultConnection: "Host={{DB_HOST}};Port={{DB_PORT}};Database={{DB_NAME}};Username={{DB_USER}};Password={{DB_PASSWORD}}"
+agentEnv:                          # dummy values so the app compiles where the AI works
+  ConnectionStrings__DefaultConnection: "Host=localhost;Database=dummy;Username=dummy;Password=dummy"
+# referenceDb: { connEnv: SHOP_READONLY_DB }   # read-only, discover only; value lives in ~/.factory/.env
+# forge: { kind: github, repo: owner/name, tokenEnv: GITHUB_TOKEN }   # leave out until you want real PRs
