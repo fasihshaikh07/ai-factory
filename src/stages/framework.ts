@@ -12,7 +12,8 @@ export type StepOutcome =
   /** outputs: named artifact shas (first is the main one). */
   | { kind: "done"; outputs: Record<string, string>; treeSha?: string; data?: Record<string, unknown> }
   /** A human card was written; the executor exits. */
-  | { kind: "wait"; card: { cardId: string; kind: string; artifactSha: string; markdown: string; deadline?: string; defaultDecision?: Record<string, unknown> } }
+  /** extra: small metadata stored on human.requested (e.g. where the pending work is cached). */
+  | { kind: "wait"; card: { cardId: string; kind: string; artifactSha: string; markdown: string; deadline?: string; defaultDecision?: Record<string, unknown>; extra?: Record<string, unknown> } }
   | { kind: "fail"; category: FailureCategory; failures: Failure[]; signature?: string; diffSha?: string; lockedFailedIds?: string[] }
   | { kind: "park"; reason: string }
   /** Run ends without delivery (e.g. not-reproduced). */

@@ -172,7 +172,7 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
           const c = outcome.card;
           ledger.writeCard(c.cardId, c.markdown);
           await ledger.append({ type: "step.interrupted", key, data: { reason: "waiting" } }, writer);
-          await ledger.append({ type: "human.requested", data: { cardId: c.cardId, kind: c.kind, artifactSha: c.artifactSha, step: n.step.key, deadline: c.deadline, defaultDecision: c.defaultDecision } }, writer);
+          await ledger.append({ type: "human.requested", data: { ...(c.extra ?? {}), cardId: c.cardId, kind: c.kind, artifactSha: c.artifactSha, step: n.step.key, deadline: c.deadline, defaultDecision: c.defaultDecision } }, writer);
           return { status: "waiting", message: `A card needs you: factory show-card ${runId}` };
         }
         case "park":

@@ -46,11 +46,18 @@ const U = { inputTokens: 2000, outputTokens: 300, cacheRead: 0, cacheWrite: 0 };
 function answerFor(system: string): unknown {
   if (system.includes("intake step")) return { source: "cli", spans: [{ id: "I-1", text: "greet with Hello" }], changeClass: "feature", risk: "low", riskTags: [], rigor: "light", touchesUi: false };
   if (system.includes("grounding step")) return { claims: [{ id: "C-1", text: "Greeter says Hi", spans: ["I-1"], anchors: [{ path: "src/Api/Greeter.cs", lineStart: 4, lineEnd: 4, quote: 'public string Greet(string name) => "Hi " + name;', symbol: "Greeter.Greet" }] }], notFound: [] };
-  if (system.includes("write the specification")) return {
+  if (system.includes("independently reading a change request")) return { spans: [{ id: "I-1", behaviours: [{ text: system.length % 2 ? "Hello Ann" : "Hello, Ann!", kind: "happy" }, { text: "empty name returns Hello", kind: "error" }] }] };
+  if (system.includes("Three engineers independently")) return { differences: [{ id: "D-1", span: "I-1", topic: "punctuation", readings: [{ sketch: 1, behaviour: 0, summary: "Hello Ann" }, { sketch: 2, behaviour: 0, summary: "Hello, Ann!" }] }] };
+  if (system.includes("Requirements analyst")) return system.includes("already answered") ? { questions: [], conflicts: [] } : {
+    questions: [{ id: "q1", category: "scope", text: "Keep the comma?", options: ["Hello Ann", "Hello, Ann!"], recommended: "Hello Ann", reason: "shortest", spans: ["I-1"], impact: 2, impactReason: "visible text", difference: "D-1" }], conflicts: [] };
+  if (system.includes("Merge three independent")) return { spec: answerFor("Senior engineer writing a behaviour spec"), alignment: [{ mergedReq: "REQ-1", from: ["d1:REQ-1", "d2:REQ-1", "d3:REQ-1"] }], conflicts: [] };
+  if (system.includes("State, as numbered")) return { sentences: [{ n: 1, text: "Greetings start with Hello." }] };
+  if (system.includes("Map each restated")) return { mapping: [{ n: 1, spans: ["I-1"], answers: [] }] };
+  if (system.includes("Senior engineer writing a behaviour spec")) return {
     requirements: [{ id: "REQ-1", ears: "When a name is given, the Greeter shall return a greeting that starts with Hello.", op: "MODIFIED", sources: ["I-1"],
       anchors: [{ path: "src/Api/Greeter.cs", lineStart: 4, lineEnd: 4, quote: 'public string Greet(string name) => "Hi " + name;' }],
       acceptance: [{ id: "AC-1.1", given: "a name Ann", when: "Greet is called", then: "the returned value is Hello Ann", level: "api" }] }],
-    nfrs: [], outOfScope: ["other greetings"], assumptions: [],
+    nfrs: [], outOfScope: ["other greetings"], assumptions: [], suggestions: [],
   };
   if (system.includes("Adversarial reviewer")) return { findings: [] };
   if (system.includes("plan the implementation")) return {
@@ -121,6 +128,20 @@ class Lab implements ContainerRuntime {
   async imageDigest(i: string) { return `${i}@sha256:fake`; }
 }
 
+/** First execute stops at the question card; answer it; the next stops at the approval card. */
+async function toApproval(runId: string) {
+  const r1 = await execute(runId);
+  expect(r1.status).toBe("waiting");
+  const ledger = Ledger.open(runId);
+  const q = replay(ledger.events()).openCard!;
+  expect(q.kind).toBe("question");
+  expect(ledger.readCard(q.cardId)).toContain("Keep the comma?");
+  await decide(ledger, { decision: "answer", hashPrefix: q.artifactSha.slice(0, 6), by: "ahsan", data: { answers: { "Q-1": "A" } } });
+  const r2 = await execute(runId);
+  expect(r2.status).toBe("waiting");
+  return ledger;
+}
+
 let lab: Lab;
 beforeEach(() => {
   const home = mkdtempSync(join(tmpdir(), "factory-e2e-"));
@@ -140,14 +161,14 @@ beforeEach(() => {
 describe("brownfield slice end to end (fakes)", () => {
   it("runs to the approval card, then to a locally delivered branch", async () => {
     const runId = await createRun("Greet people with Hello instead of Hi", "demo", "tester");
-    const first = await execute(runId);
-    expect(first.status).toBe("waiting");
-    const ledger = Ledger.open(runId);
+    const ledger = await toApproval(runId);
     const s1 = replay(ledger.events());
     expect(s1.openCard?.kind).toBe("approval");
     const card = ledger.readCard(s1.openCard!.cardId);
     expect(card).toContain("> Greet people with Hello instead of Hi");
     expect(card).toContain("src/Api/Greeter.cs");
+    expect(card).toContain("Q-1 Keep the comma? → **Hello Ann**");
+    expect(card).toContain("Round trip: the spec restated back matches");
 
     await expect(decide(ledger, { decision: "approve", hashPrefix: "ffff" })).rejects.toThrow();
     await decide(ledger, { decision: "approve", hashPrefix: s1.openCard!.artifactSha.slice(0, 6), by: "ahsan", data: { note: "low risk" } });
@@ -156,7 +177,7 @@ describe("brownfield slice end to end (fakes)", () => {
     expect(done.status).toBe("delivered");
     const s2 = replay(ledger.events());
     expect(s2.status).toBe("delivered");
-    for (const step of ["discover", "intake", "ground", "specify", "critic", "plan", "approve", "stub-commit", "author-tests", "implement/TASK-1", "integrate", "accept", "review", "deliver"]) {
+    for (const step of ["discover", "intake", "ground", "clarify", "clarify-2", "drafts", "merge", "specify", "plan", "approve", "stub-commit", "author-tests", "implement/TASK-1", "integrate", "accept", "review", "deliver"]) {
       expect(s2.steps.get(step)?.status, step).toBe("completed");
     }
     // author-tests ran the AC test on base twice and it failed for the right reason
@@ -179,8 +200,7 @@ describe("brownfield slice end to end (fakes)", () => {
 
   it("resumes after a crash mid-implement without redoing finished steps", async () => {
     const runId = await createRun("Greet people with Hello instead of Hi", "demo", "tester");
-    await execute(runId);
-    const ledger = Ledger.open(runId);
+    const ledger = await toApproval(runId);
     const card = replay(ledger.events()).openCard!;
     await decide(ledger, { decision: "approve", hashPrefix: card.artifactSha.slice(0, 6), by: "ahsan" });
 
@@ -201,8 +221,7 @@ describe("brownfield slice end to end (fakes)", () => {
 
   it("parks when a coding step keeps failing a safety gate", async () => {
     const runId = await createRun("Greet people with Hello instead of Hi", "demo", "tester");
-    await execute(runId);
-    const ledger = Ledger.open(runId);
+    const ledger = await toApproval(runId);
     const card = replay(ledger.events()).openCard!;
     await decide(ledger, { decision: "approve", hashPrefix: card.artifactSha.slice(0, 6), by: "ahsan" });
     // make the implementer also edit the locked test

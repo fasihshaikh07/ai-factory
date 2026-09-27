@@ -14,20 +14,22 @@ Design: `docs/design/` (start with `BUILD-BRIEF.md`, then `stages-aligned.md`).
     npm run factory -- doctor
     npm run factory -- start "what you want changed" --project <name>
     npm run factory -- show-card <run>
+    npm run factory -- answer <run> <hash> Q-1=A Q-2="your words"
     npm run factory -- approve <run> <hash> --note "risk note"
     npm run factory -- status [run]
     npm run factory -- resume <run>
     npm run factory -- verify-evidence <run>
 
 ## What's built (brownfield slice)
-discover + baseline → intake → ground → specify + lint → critic → plan → approval card →
+discover + baseline → intake → ground → clarify (3 sketches, ≤5 + ≤3 questions) →
+3 spec drafts → merge → lint + critic + round trip (≤3 repairs) → plan → approval card →
 stub commit → author-tests (must fail on the old code twice, then locked) →
 implement per task ⟲ task verify → integrate → accept → review → deliver (branch + manifest; PR only if `forge` is set).
 
 ## Not built yet
-Clarify questions, 3-draft spec merge and round trip; app boot + HTTP replay in accept;
+App boot + HTTP replay in accept;
 review repair loop (blocking findings park); test-defect check and unlock card; applying `steer` changes;
-Codex and jcode runners; URL-prefix TLS feed proxy (host allowlist for now); greenfield, estimate, linked runs.
+Codex and jcode runners; URL-prefix TLS feed proxy (owed; host allowlist for now); greenfield, estimate, linked runs.
 
 ## Tests
     npm test        # all offline, no model calls

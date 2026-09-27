@@ -1,7 +1,7 @@
 // Spec side of the brownfield slice: intake → ground → specify (+lint, critic) → plan → approval card.
 import { z } from "zod";
 import {
-  CriticFinding, CurrentBehaviourBody, IntentBody, maxRisk, PlanBody, type Risk, SpecDraft, type Complexity,
+  CurrentBehaviourBody, IntentBody, maxRisk, PlanBody, type Risk, SpecDraft, type Complexity,
 } from "../contracts/index.js";
 import { checkEvidence } from "../context/tools.js";
 import { buildRepoMap } from "../context/repomap.js";
@@ -11,7 +11,8 @@ import { isConfigIntegrityPath } from "../gates/protected.js";
 import { runGate } from "../gates/engine.js";
 import { hashJson } from "../util/hash.js";
 import { header, readOutput, requireOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
-import { lintSpec } from "./speclint.js";
+import { clarifications, type ClarifyResult } from "./clarify.js";
+import { CriticOut } from "./specpipe.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
 import { snapshotFor, toolsFor } from "./workspace.js";
 
@@ -94,73 +95,6 @@ If nothing exists yet for a span (new behaviour), list it under notFound with wh
   },
 };
 
-// ---------- specify (+ lint + critic) ----------
-export const specifyStep: StepDef = {
-  key: "specify", stage: "specify", templateVersion: "1",
-  inputs: (s) => (s.steps.get("ground")?.status === "completed" ? { intent: s.steps.get("intake")!.outputs[0], cb: s.steps.get("ground")!.outputs[0] } : undefined),
-  async run(ctx) {
-    const intent = requireOutput<Intent>(ctx.state, ctx.ledger, "intake");
-    const cb = requireOutput<CB>(ctx.state, ctx.ledger, "ground");
-    const snap = snapshotFor(ctx);
-    const r = await think(ctx, {
-      stage: "specify", route: "specify", cls: "read-large", budgetTokens: 30000, tools: ["read_file", "search"],
-      repoTools: toolsFor(ctx), schema: SpecDraft, maxTurns: 8,
-      sections: [
-        S.template("tpl", `You write the specification for a change to an existing system.
-Requirements use EARS: "The <system> shall <response>", "When <trigger>, the <system> shall <response>", "While <state>, ...", "If <condition>, then the <system> shall <response>". Exactly one "shall" each. IDs REQ-1, REQ-2...
-op: ADDED (new), MODIFIED or REMOVED (existing behaviour; these need anchors copied exactly from the current-behaviour claims).
-Each requirement lists its source intent span IDs and has acceptance criteria AC-<req>.<n> in Given/When/Then that a black-box test can check at a public surface (HTTP response, database row, outbound call, screen). level: api | job | ui | manual.
-Include error, empty and permission paths. No vague words (fast, robust, appropriate) without numbers.
-Don't invent features the request doesn't ask for. List what isn't changing under outOfScope. assumptions: IDs only, may be empty.
-Keep it small: a bugfix has at most 4 requirements.`),
-        S.artifact("intent", "intent", intent),
-        S.artifact("cb", "current-behaviour", cb),
-        S.task("Write the spec."),
-        S.recap(["EARS with one shall", "every span covered or out of scope", "ACs observable from outside", "anchors copied exactly for MODIFIED/REMOVED"]),
-      ],
-    });
-    if (!r.ok) return r.outcome;
-    const spec = r.output;
-    const lint = lintSpec(spec, {
-      spans: intent.spans.map((s) => s.id), changeClass: intent.changeClass,
-      anchorOk: (id) => (spec.requirements.find((q) => q.id === id)?.anchors ?? []).every((a) => checkEvidence(snap, a).ok),
-    });
-    const blocking = lint.filter((l) => l.blocking && !l.passed);
-    if (blocking.length) {
-      return { kind: "fail", category: "other", failures: blocking.map((l) => failure(`spec-lint ${l.check}`, l.details)), signature: `lint:${blocking.map((b) => b.check).join(",")}` };
-    }
-    const specSha = ctx.ledger.putJson({ header: header(ctx.runId, "spec", "specify", "", r.model), ...spec, lint: lint.map(({ check, passed, details }) => ({ check, passed, details })), critic: [], roundTrip: { droppedSpans: [], inventedCapabilities: [] } });
-    return { kind: "done", outputs: { spec: specSha }, data: { lintAdvisories: lint.filter((l) => !l.passed).map((l) => l.check) } };
-  },
-};
-
-const CriticOut = z.object({ findings: z.array(CriticFinding.extend({ rubric: z.number().int().min(1).max(8) })) });
-
-export const criticStep: StepDef = {
-  key: "critic", stage: "critic", templateVersion: "1",
-  inputs: (s) => (s.steps.get("specify")?.status === "completed" ? { spec: s.steps.get("specify")!.outputs[0] } : undefined),
-  async run(ctx) {
-    const intent = requireOutput<Intent>(ctx.state, ctx.ledger, "intake");
-    const cb = requireOutput<CB>(ctx.state, ctx.ledger, "ground");
-    const spec = requireOutput<Spec>(ctx.state, ctx.ledger, "specify");
-    const r = await think(ctx, {
-      stage: "critic", route: "critic", cls: "read-large", budgetTokens: 30000, tools: [], schema: CriticOut,
-      sections: [
-        S.template("tpl", `Adversarial reviewer. Find defects in this spec; don't praise; don't rewrite it.
-Rubric: 1 conflicts between requirements 2 missing error, empty and permission paths 3 ACs not observable at a public surface 4 scope creep beyond the intent 5 claims about existing behaviour without anchors 6 state transitions and existing data 7 behaviour changes outside the requested scope (blast radius) 8 hardcoded identifiers that should be configuration.
-Each finding: rubric number, reqId, severity (critical|high|medium|low), one-sentence evidence in "finding". Empty list if none.`),
-        S.artifact("intent", "intent", intent),
-        S.artifact("cb", "current-behaviour", cb),
-        S.artifact("spec", "spec", spec),
-        S.task("Review the spec."),
-      ],
-    });
-    if (!r.ok) return r.outcome;
-    const sha = ctx.ledger.putJson({ findings: r.output.findings, note: r.note });
-    return { kind: "done", outputs: { critic: sha } };
-  },
-};
-
 // ---------- plan ----------
 function complexityOf(plan: PlanT): Complexity {
   const loc = plan.tasks.reduce((n, t) => n + t.plannedLoc, 0);
@@ -171,11 +105,11 @@ function complexityOf(plan: PlanT): Complexity {
 
 export const planStep: StepDef = {
   key: "plan", stage: "plan", templateVersion: "1",
-  inputs: (s) => (s.steps.get("critic")?.status === "completed" ? { spec: s.steps.get("specify")!.outputs[0], critic: s.steps.get("critic")!.outputs[0] } : undefined),
+  inputs: (s) => (s.steps.get("specify")?.status === "completed" ? { spec: s.steps.get("specify")!.outputs[0] } : undefined),
   async run(ctx) {
     const spec = requireOutput<Spec>(ctx.state, ctx.ledger, "specify");
     const cb = requireOutput<CB>(ctx.state, ctx.ledger, "ground");
-    const critic = requireOutput<{ findings: unknown[] }>(ctx.state, ctx.ledger, "critic");
+    const critic = requireOutput<{ findings: unknown[] }>(ctx.state, ctx.ledger, "specify", "critic");
     const snap = snapshotFor(ctx);
     const map = buildRepoMap(snap.root, snap.files, { budgetTokens: 4000, focus: cb.claims.flatMap((c) => c.anchors.map((a) => a.path)) }).map;
     const r = await think(ctx, {
@@ -214,7 +148,7 @@ export function plannedFiles(plan: PlanT): string[] {
   return [...new Set(plan.tasks.flatMap((t) => t.fileScope))].sort();
 }
 
-export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; plan: PlanT & { complexity: Complexity }; critic: { findings: z.infer<typeof CriticOut>["findings"]; note?: string }; cb: CB; risk: Risk }): string {
+export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; plan: PlanT & { complexity: Complexity }; critic: { findings: z.infer<typeof CriticOut>["findings"]; note?: string }; cb: CB; risk: Risk; clar: ReturnType<typeof clarifications>; open: string[]; roundTrip?: { droppedSpans: string[]; inventedCapabilities: string[] } }): string {
   const grounded = new Set(a.cb.claims.flatMap((c) => c.anchors.map((x) => x.path)));
   const files = plannedFiles(a.plan);
   const notGrounded = files.filter((f) => !grounded.has(f));
@@ -227,8 +161,12 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
     `## Your request (word for word)`,
     ...request(ctx).split("\n").map((l) => `> ${l}`),
     ``,
+    ...(a.clar.answers.length ? [``, `## Your answers`, ...a.clar.answers.map((q) => `- ${q.id} ${q.question} → **${q.answer}**${q.by === "default" || q.by === "default-timeout" ? " (default)" : ""}`)] : []),
+    ...(a.clar.assumptions.some((x) => x.risk === "high") ? [``, `## Confirm these assumptions (high risk)`, ...a.clar.assumptions.filter((x) => x.risk === "high").map((x) => `- [ ] ${x.id} ${x.text}`)] : []),
+    ...(a.clar.assumptions.some((x) => x.risk !== "high") ? [``, `Other assumptions: ${a.clar.assumptions.filter((x) => x.risk !== "high").map((x) => `${x.id} ${x.text}`).join("; ")}`] : []),
+    ``,
     `## Requirements`,
-    ...a.spec.requirements.map((r) => `- **${r.id}** (${r.op}) ${r.ears}\n${r.acceptance.map((c) => `  - ${c.id} [${c.level}] Given ${c.given}; when ${c.when}; then ${c.then}`).join("\n")}`),
+    ...a.spec.requirements.map((r) => `- **${r.id}** (${r.op})${r.stability !== undefined && r.stability < 2 / 3 ? " ⚠ only one draft had this" : ""} ${r.ears}\n${r.acceptance.map((c) => `  - ${c.id} [${c.level}] Given ${c.given}; when ${c.when}; then ${c.then}`).join("\n")}`),
     ``,
     `Not changing: ${a.spec.outOfScope.join("; ") || "(none listed)"}`,
     ``,
@@ -245,6 +183,8 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
     `## Critic findings (${a.critic.findings.length})`,
     ...a.critic.findings.map((f) => `- [${f.severity}] ${f.reqId ?? ""} ${f.finding}`),
     ...(a.critic.note ? [`_${a.critic.note}_`] : []),
+    ...(a.open.length ? [``, `## Still open after 3 repairs`, ...a.open.map((o) => `- ${o}`)] : []),
+    ...(a.roundTrip && !a.roundTrip.droppedSpans.length && !a.roundTrip.inventedCapabilities.length ? [``, `Round trip: the spec restated back matches your request (nothing dropped, nothing added).`] : []),
     ``,
     `## Decide`,
     `  factory approve ${ctx.runId} <hash> --note "your risk note"`,
@@ -271,8 +211,11 @@ export const approveStep: StepDef = {
     const intent = requireOutput<Intent>(ctx.state, ctx.ledger, "intake");
     const md = approvalCard(ctx, {
       intent, spec: requireOutput<Spec>(ctx.state, ctx.ledger, "specify"),
-      plan: requireOutput(ctx.state, ctx.ledger, "plan"), critic: requireOutput(ctx.state, ctx.ledger, "critic"),
+      plan: requireOutput(ctx.state, ctx.ledger, "plan"), critic: requireOutput(ctx.state, ctx.ledger, "specify", "critic"),
       cb: requireOutput<CB>(ctx.state, ctx.ledger, "ground"), risk: intent.risk,
+      clar: clarifications(readOutput<ClarifyResult>(ctx.state, ctx.ledger, "clarify"), readOutput<ClarifyResult>(ctx.state, ctx.ledger, "clarify-2")),
+      open: (ctx.state.steps.get("specify")!.data?.openFindings as string[] | undefined) ?? [],
+      roundTrip: requireOutput<{ roundTrip?: { droppedSpans: string[]; inventedCapabilities: string[] } }>(ctx.state, ctx.ledger, "specify").roundTrip,
     });
     const card = `${md}\n\nCard hash: ${bundleSha.slice(0, 8)}`;
     return { kind: "wait", card: { cardId: `approval-${bundleSha.slice(0, 8)}`, kind: "approval", artifactSha: bundleSha, markdown: card } };

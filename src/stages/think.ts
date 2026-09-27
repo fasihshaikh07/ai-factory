@@ -18,6 +18,8 @@ export function setProviderFactory(f: (model: string) => Provider): void {
 export interface ThinkSpec<T> {
   stage: StageName;
   route: string;              // routing key (e.g. "critic")
+  /** Use this model instead of the route's (e.g. the second-family drafter). */
+  model?: string;
   cls: PackClass;
   budgetTokens?: number;
   sections: ResolvedSection[];
@@ -34,7 +36,9 @@ export type ThinkResult<T> =
   | { ok: false; outcome: StepOutcome };
 
 export async function think<T>(ctx: StepContext, spec: ThinkSpec<T>): Promise<ThinkResult<T>> {
-  const { model, effort, singleFamilyNote } = modelFor(ctx.project, spec.route, ctx.rung);
+  const routed = modelFor(ctx.project, spec.route, ctx.rung);
+  const { effort, singleFamilyNote } = routed;
+  const model = spec.model ?? routed.model;
   const sections = [...spec.sections];
   if (ctx.priorFailures.length) {
     sections.push({

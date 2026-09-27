@@ -86,6 +86,23 @@ for (const d of ["approve", "reject"] as const) {
     });
 }
 
+program.command("answer").argument("<run>").argument("<hash>", "first characters of the card hash")
+  .argument("<answers...>", 'Q-1=A Q-2="your own words"')
+  .description("answer the open question card (terminal only)")
+  .action(async (run: string, hash: string, pairs: string[]) => {
+    assertTty();
+    const answers: Record<string, string> = {};
+    for (const p of pairs) {
+      const m = /^(Q-\d+)=(.+)$/s.exec(p);
+      if (!m) throw new DecisionError(`Can't read "${p}". Use Q-1=A or Q-1="words".`);
+      answers[m[1]!] = m[2]!;
+    }
+    const l = openRun(run);
+    const r = await decide(l, { decision: "answer", hashPrefix: hash, data: { answers } });
+    log(r.kind === "repeat" ? "Already recorded." : "Answers recorded; unanswered questions use the recommended option.");
+    if (r.kind === "recorded") await runAndReport(l.runId);
+  });
+
 for (const c of ["pause", "stop"] as const) {
   program.command(c).argument("<run>").description(`${c} a run at the next step boundary`).action(async (run: string) => {
     const l = openRun(run);
