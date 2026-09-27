@@ -6,6 +6,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { join } from "node:path";
 import type { BuildRun, TestResult, TestRun, VerifyStage } from "../contracts/index.js";
 import { fillTemplate, type ProjectConfig } from "../config/project.js";
+import { secret } from "../config/env.js";
 import { hardenedEnv } from "../ledger/git.js";
 import { sha256 } from "../util/hash.js";
 import { factoryHome } from "../util/paths.js";
@@ -142,15 +143,26 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
 
     // db: loopback only
     let dbId: string | undefined;
-    const dbVars = { DB_HOST: "127.0.0.1", DB_PORT: "5432", DB_NAME: project.database?.name ?? "app_test", DB_USER: "factory", DB_PASSWORD: randomBytes(12).toString("hex") };
-    if (project.database) {
-      toolVersions.dbImage = await rt.imageDigest(project.database.image);
+    const db = project.database;
+    const dbVars = {
+      DB_HOST: "127.0.0.1", DB_PORT: "5432", DB_NAME: db?.name ?? "app_test", DB_USER: db?.user ?? "factory",
+      DB_PASSWORD: (db?.passwordEnv ? secret(db.passwordEnv) : undefined) ?? randomBytes(12).toString("hex"),
+    };
+    if (db?.passwordEnv && !secret(db.passwordEnv)) throw new Error(`${db.passwordEnv} is missing in ~/.factory/.env`);
+    if (db) {
+      toolVersions.dbImage = await rt.imageDigest(db.image);
+      // The image's superuser gets a random password nobody sees; tests log in as a CREATEDB role.
       dbId = await launch({
-        role: "db", image: project.database.image, network: "none", user: "",
-        env: { POSTGRES_USER: dbVars.DB_USER, POSTGRES_PASSWORD: dbVars.DB_PASSWORD, POSTGRES_DB: dbVars.DB_NAME },
+        role: "db", image: db.image, network: "none", user: "",
+        env: { POSTGRES_USER: "factory_admin", POSTGRES_PASSWORD: randomBytes(16).toString("hex"), POSTGRES_DB: "postgres" },
         capAdd: ["CHOWN", "SETUID", "SETGID", "FOWNER", "DAC_OVERRIDE"], mounts: [], cmd: [],
       });
       await waitForPg(rt, dbId);
+      const ident = dbVars.DB_USER.replace(/"/g, "");
+      const pw = dbVars.DB_PASSWORD.replace(/'/g, "''");
+      const sql = `CREATE ROLE "${ident}" LOGIN CREATEDB NOSUPERUSER PASSWORD '${pw}'; CREATE DATABASE "${dbVars.DB_NAME.replace(/"/g, "")}" OWNER "${ident}";`;
+      const r = await rt.exec(dbId, ["psql", "-v", "ON_ERROR_STOP=1", "-U", "factory_admin", "-d", "postgres", "-c", sql]);
+      if (r.code !== 0) throw new Error(`Couldn't create the test database login: ${r.stderr.split(dbVars.DB_PASSWORD).join("«SECRET»").slice(0, 300)}`);
     }
     const dbEnv = project.database ? fillTemplate(project.database.producerEnv, dbVars) : {};
 

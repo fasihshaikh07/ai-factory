@@ -29,6 +29,10 @@ export const ProjectConfig = z.object({
   database: z.object({
     image: z.string().default("postgres:16-alpine"),
     name: z.string().default("app_test"),
+    /** Login the repo's tests use. Created with CREATEDB, never superuser. */
+    user: z.string().default("factory"),
+    /** Env var in ~/.factory/.env holding that login's test password (when the tests hardcode one). */
+    passwordEnv: z.string().optional(),
     /** Producer env template: only container B gets these. {{DB_*}} are filled by the core. */
     producerEnv: z.record(z.string(), z.string()).default({}),
     migrate: z.array(z.string()).optional(),
