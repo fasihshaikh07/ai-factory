@@ -235,7 +235,9 @@ program.command("mcp").description("run the MCP server (for Claude Code: start r
 program.command("doctor").description("check this machine and the setup").action(() => {
   const ok = (b: boolean, m: string, fix?: string) => log(`${b ? "ok  " : "MISSING"} ${m}${!b && fix ? `\n      → ${fix}` : ""}`);
   ok(Number(process.versions.node.split(".")[0]) >= 22, `Node ${process.version}`, "install Node 22 with nvm");
-  ok(process.platform === "linux" && !process.cwd().startsWith("/mnt/"), "running inside Linux (WSL2), not on a Windows drive");
+  const wsl = process.platform === "linux" && /microsoft/i.test(existsSync("/proc/version") ? readFileSync("/proc/version", "utf8") : "");
+  if (process.platform === "darwin") ok(true, "macOS");
+  else ok(process.platform === "linux" && !process.cwd().startsWith("/mnt/"), wsl ? "running inside WSL (Ubuntu), not on a Windows drive" : "running on Linux", "on Windows, use the Ubuntu terminal (install.ps1 sets it up)");
   let rt = "";
   try { rt = findRuntimeBinary(); } catch (e) { rt = ""; ok(false, "container runtime", (e as Error).message); }
   if (rt) ok(true, `container runtime: ${rt}`);
@@ -243,7 +245,7 @@ program.command("doctor").description("check this machine and the setup").action
   ok(hasSecret("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY set in ~/.factory/.env");
   log(`${hasSecret("OPENAI_API_KEY") ? "ok  " : "note"} OPENAI_API_KEY ${hasSecret("OPENAI_API_KEY") ? "set" : "not set: critic and review will use Claude (single family)"}`);
   const projects = existsSync(join(factoryHome(), "projects")) ? readdirSync(join(factoryHome(), "projects")).filter((f) => f.endsWith(".yaml")) : [];
-  ok(projects.length > 0, `projects: ${projects.join(", ") || "none"}`, `create ${projectPath("<name>")} (see docs/project-example.yaml)`);
+  ok(projects.length > 0, `projects: ${projects.join(", ").replace(/\.yaml/g, "") || "none"}`, "add one with: factory init <path-to-repo-or-git-url>");
 });
 
 program.parseAsync().catch((e: Error) => {

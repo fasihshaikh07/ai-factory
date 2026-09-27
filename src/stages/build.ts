@@ -86,7 +86,7 @@ export const discoverStep: StepDef = {
     } else {
       ctx.log("baseline: building and testing the untouched repo (first time is slow)");
       const out = await produce(ctx, "discover", ctx.state.info.baseCommit!, "baseline", { expectPass: [], expectFail: [], compareToBaseline: [] });
-      if (!out.build.ok) return { kind: "park", reason: `The untouched repo doesn't build in the test lab: ${out.build.errors.slice(0, 3).map((e) => `${e.file}:${e.line} ${e.code} ${e.msg}`).join("; ") || "see restore/build log"}` };
+      if (!out.build.ok) return { kind: "park", reason: `The untouched repo doesn't build in the test lab: ${out.build.errors.slice(0, 3).map((e) => `${e.file ? `${e.file}:${e.line} ` : ""}${e.code === "RESTORE" ? "" : `${e.code} `}${e.msg}`).join("; ") || "see restore/build log"}` };
       baseline = out.testRun;
       mkdirSync(dirname(cacheFile), { recursive: true });
       writeFileSync(cacheFile, JSON.stringify(baseline));

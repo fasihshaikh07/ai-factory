@@ -1,8 +1,10 @@
 # AI Factory installer for Windows 10/11.
 # Run in PowerShell (the first run needs "Run as administrator" if WSL isn't installed yet):
-#   powershell -ExecutionPolicy Bypass -File install.ps1
+#   powershell -ExecutionPolicy Bypass -File install.ps1            (asks for your API key at the end)
+#   powershell -ExecutionPolicy Bypass -File install.ps1 -NoKeys    (add keys later to ~/.factory/.env)
 # Safe to run again: it skips what's already done. It sets up WSL + Ubuntu, then runs
 # scripts/setup.sh inside Ubuntu (Node, Docker Engine, the factory, images, keys, Claude Code MCP).
+param([switch]$NoKeys)
 $ErrorActionPreference = "Stop"
 $RepoUrl = "https://github.com/im-ahsan/ai-factory.git"
 function Step($t) { Write-Host "`n$t" -ForegroundColor Cyan }
@@ -50,7 +52,9 @@ if (Test-Path $gcm) {
   Note "Git for Windows not found. If the repo is private, install it (winget install Git.Git) and run this again, or sign in when git asks."
 }
 if (Get-Command code -ErrorAction SilentlyContinue) {
-  code --install-extension ms-vscode-remote.remote-wsl --force | Out-Null
+  Push-Location $env:TEMP   # VS Code's CLI complains when started from a \\wsl$ folder
+  cmd.exe /c "code --install-extension ms-vscode-remote.remote-wsl --force >nul 2>&1"
+  Pop-Location
   Ok "VS Code WSL extension"
 } else {
   Note "VS Code not found (optional)"
@@ -58,7 +62,8 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
 
 # ---------- 4. everything else, inside Ubuntu ----------
 Step "4/4 Installing the factory inside Ubuntu (it may ask for your Linux password)"
-$cmd = "cd ~ && if [ ! -d ~/ai-factory/.git ]; then git clone '$RepoUrl' ~/ai-factory; fi && ~/ai-factory/scripts/setup.sh"
+$setupArgs = if ($NoKeys) { "--no-keys" } else { "" }
+$cmd = "cd ~ && if [ ! -d ~/ai-factory/.git ]; then git clone '$RepoUrl' ~/ai-factory; fi && ~/ai-factory/scripts/setup.sh $setupArgs"
 wsl.exe -d $distro -- bash -lc $cmd
 if ($LASTEXITCODE -ne 0) { Write-Host "`nSetup stopped. Read the message above, fix it, and run this script again." -ForegroundColor Red; exit 1 }
 

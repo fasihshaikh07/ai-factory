@@ -143,7 +143,7 @@ Open **PowerShell as administrator** (right-click → *Run as administrator*) an
 git clone https://github.com/im-ahsan/ai-factory.git $env:TEMP\ai-factory; powershell -ExecutionPolicy Bypass -File $env:TEMP\ai-factory\install.ps1
 ```
 
-> No git on Windows? Download [`install.ps1`](install.ps1) from GitHub and run `powershell -ExecutionPolicy Bypass -File install.ps1` from your Downloads folder.
+> Add `-NoKeys` to skip the API-key question and add keys later. No git on Windows? Download [`install.ps1`](install.ps1) from GitHub and run `powershell -ExecutionPolicy Bypass -File install.ps1` from your Downloads folder.
 
 The first time, it installs WSL + Ubuntu and asks you to create a Linux username and password (and may ask for a restart). **Run the same command again afterwards**; it then installs everything inside Ubuntu and connects VS Code. From then on, open the factory with:
 

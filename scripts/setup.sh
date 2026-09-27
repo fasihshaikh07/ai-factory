@@ -146,7 +146,7 @@ elif [ ! -d "$FACTORY_DIR/.git" ]; then
 fi
 cd "$FACTORY_DIR"
 case "$FACTORY_DIR" in /mnt/[a-z]/*) die "The factory folder is on a Windows drive ($FACTORY_DIR). Clone it inside Ubuntu, e.g. ~/ai-factory." ;; esac
-note "Installing packages and building"
+note "Installing packages and building (a minute)"
 quiet npm ci --no-audit --no-fund --loglevel=error
 npm run -s build
 npm link --loglevel=error >/dev/null 2>&1 || npm link
