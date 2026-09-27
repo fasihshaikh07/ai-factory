@@ -1,0 +1,32 @@
+{
+  "name": "ai-factory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Factory POC: turns a request into a verified PR",
+  "bin": {
+    "factory": "dist/cli/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "factory": "tsx src/cli/index.ts"
+  },
+  "dependencies": {
+    "commander": "15.0.0",
+    "proper-lockfile": "4.1.2",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "@types/proper-lockfile": "4.1.4",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "vitest": "5.0.2"
+  }
+}
