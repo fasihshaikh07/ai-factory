@@ -23,6 +23,8 @@ export interface AgentJobExtras {
   /** locked test files + declared-extra protected paths */
   lockedFiles: string[];
   extraProtected: string[];
+  /** Replace the default protected globs (author-tests may create test files; config stays protected). */
+  protectedGlobs?: string[];
   /** per-run restored NuGet folder, mounted read-only */
   packagesDir?: string;
   agentEnv: Record<string, string>;
@@ -80,7 +82,7 @@ export class ClaudeAgentRunner implements Runner {
       task: job.pack.user,
       schema: toJsonSchema(job.schema),
       fileScope: x.fileScope,
-      protectedGlobs: [...LOCK_SET_GLOBS, ...CONFIG_INTEGRITY_GLOBS, ...x.lockedFiles, ...x.extraProtected],
+      protectedGlobs: [...(x.protectedGlobs ?? [...LOCK_SET_GLOBS, ...CONFIG_INTEGRITY_GLOBS]), ...x.lockedFiles, ...x.extraProtected],
     }));
 
     const mounts: Mount[] = [

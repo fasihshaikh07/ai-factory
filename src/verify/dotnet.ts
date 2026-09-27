@@ -28,6 +28,8 @@ export interface ProduceInput {
   onRemoved?: (id: string) => Promise<void>;
   /** For author-tests-on-base: only run these tests. */
   onlyTests?: string[];
+  /** Per-run package folder, kept between producer runs (restore is the slow part). */
+  packagesDir?: string;
 }
 
 export interface ProduceOutput {
@@ -80,7 +82,7 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
   const { rt, project } = inp;
   const n = `${Date.now()}-${randomBytes(3).toString("hex")}`;
   const work = join(factoryHome(), "tmp", inp.runId, n);
-  const src = join(work, "src"), nuget = join(work, "nuget"), resBuild = join(work, "results-build"), resTest = join(work, "results-test");
+  const src = join(work, "src"), nuget = inp.packagesDir ?? join(work, "nuget"), resBuild = join(work, "results-build"), resTest = join(work, "results-test");
   for (const d of [src, nuget, resBuild, resTest]) mkdirSync(d, { recursive: true });
   const live = new Set<string>();
   const logs = { restore: "", build: "", test: "" };

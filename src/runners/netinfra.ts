@@ -44,8 +44,15 @@ async function running(rt: ContainerRuntime, name: string): Promise<boolean> {
   }
 }
 
+/** Tests with a fake runtime skip real network/image setup. */
+let skipInfra = false;
+export function setSkipInfra(v: boolean): void {
+  skipInfra = v;
+}
+
 /** Idempotent: create networks, then (re)start both proxies. */
 export async function ensureEgress(rt: ContainerRuntime, feedHosts: string[]): Promise<void> {
+  if (skipInfra) return;
   for (const net of [AGENT_NET, FEEDS_NET]) {
     if (!(await exists(rt, "network", net))) await cli(rt, ["network", "create", "--internal", net]);
   }
@@ -69,6 +76,7 @@ export async function ensureEgress(rt: ContainerRuntime, feedHosts: string[]): P
 
 /** Build container A's image once (docker/agent). */
 export async function ensureAgentImage(rt: ContainerRuntime, sdkImage: string): Promise<void> {
+  if (skipInfra) return;
   if (await exists(rt, "image", AGENT_IMAGE)) return;
   await cli(rt, ["build", "--build-arg", `DOTNET_SDK=${sdkImage}`, "-t", AGENT_IMAGE, join(REPO_ROOT, "docker", "agent")]);
 }

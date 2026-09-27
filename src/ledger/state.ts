@@ -159,7 +159,7 @@ export function replay(events: LedgerEvent[]): RunState {
         const r = rec(step);
         r.status = "interrupted";
         r.attempts -= 1; // interrupted attempts don't count toward the cap
-        r.interruptions += 1;
+        if (data.reason !== "waiting") r.interruptions += 1; // a human wait isn't a crash
         s.inFlight = undefined;
         startedAt = undefined; // crash time is unknown; don't count it
         break;
