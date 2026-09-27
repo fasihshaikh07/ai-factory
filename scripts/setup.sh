@@ -77,7 +77,7 @@ node_major() { have node && node -p 'process.versions.node.split(".")[0]' 2>/dev
 if [ "$(node_major)" -lt "$NODE_MAJOR" ]; then
   if ! have nvm; then
     note "Installing nvm"
-    curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | PROFILE=/dev/null bash >/dev/null
+    curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | PROFILE=/dev/null bash >>"$LOG" 2>&1
     . "$NVM_DIR/nvm.sh"
     # load nvm in new terminals (zsh is the Mac default, bash elsewhere)
     [ "$PLATFORM" = mac ] && touch "$HOME/.zshrc"
@@ -86,7 +86,8 @@ if [ "$(node_major)" -lt "$NODE_MAJOR" ]; then
       grep -q 'NVM_DIR' "$rc" || printf '\nexport NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' >> "$rc"
     done
   fi
-  nvm install "$NODE_MAJOR" >/dev/null && nvm alias default "$NODE_MAJOR" >/dev/null
+  note "Installing Node $NODE_MAJOR"
+  quiet nvm install "$NODE_MAJOR" && quiet nvm alias default "$NODE_MAJOR"
 fi
 ok "Node $(node -v)"
 
