@@ -160,8 +160,10 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
       await waitForPg(rt, dbId);
       const ident = dbVars.DB_USER.replace(/"/g, "");
       const pw = dbVars.DB_PASSWORD.replace(/'/g, "''");
-      const sql = `CREATE ROLE "${ident}" LOGIN CREATEDB NOSUPERUSER PASSWORD '${pw}'; CREATE DATABASE "${dbVars.DB_NAME.replace(/"/g, "")}" OWNER "${ident}";`;
-      const r = await rt.exec(dbId, ["psql", "-v", "ON_ERROR_STOP=1", "-U", "factory_admin", "-d", "postgres", "-c", sql]);
+      // separate -c flags: CREATE DATABASE can't run inside the single transaction one -c makes
+      const r = await rt.exec(dbId, ["psql", "-v", "ON_ERROR_STOP=1", "-U", "factory_admin", "-d", "postgres",
+        "-c", `CREATE ROLE "${ident}" LOGIN CREATEDB NOSUPERUSER PASSWORD '${pw}'`,
+        "-c", `CREATE DATABASE "${dbVars.DB_NAME.replace(/"/g, "")}" OWNER "${ident}"`]);
       if (r.code !== 0) throw new Error(`Couldn't create the test database login: ${r.stderr.split(dbVars.DB_PASSWORD).join("«SECRET»").slice(0, 300)}`);
     }
     const dbEnv = project.database ? fillTemplate(project.database.producerEnv, dbVars) : {};
@@ -177,6 +179,7 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
           "--logger", "trx;LogFilePrefix=r", "--results-directory", "/results",
           "--blame-hang-timeout", `${Math.max(60, Math.round(project.dotnet.testTimeoutSec / 3))}s`,
           ...(filter ? ["--filter", filter] : []),
+          ...(project.dotnet.runnerArgs.length ? ["--", ...project.dotnet.runnerArgs] : []),
         ],
       });
       const code = await rt.wait(t, project.dotnet.testTimeoutSec * 1000);

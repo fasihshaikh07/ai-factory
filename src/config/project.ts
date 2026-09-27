@@ -25,7 +25,9 @@ export const ProjectConfig = z.object({
     solution: z.string().optional(),
     buildTimeoutSec: z.number().default(900),
     testTimeoutSec: z.number().default(1800),
-  }).default({ sdkImage: "mcr.microsoft.com/dotnet/sdk:8.0", buildTimeoutSec: 900, testTimeoutSec: 1800 }),
+    /** Runner settings passed after `--` on the command line (never by editing repo config). */
+    runnerArgs: z.array(z.string()).default([]),
+  }).default({ sdkImage: "mcr.microsoft.com/dotnet/sdk:8.0", buildTimeoutSec: 900, testTimeoutSec: 1800, runnerArgs: [] }),
   database: z.object({
     image: z.string().default("postgres:16-alpine"),
     name: z.string().default("app_test"),
