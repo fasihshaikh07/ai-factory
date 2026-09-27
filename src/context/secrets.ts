@@ -28,7 +28,7 @@ export class Redactor {
       out = out.replace(rule.re, (...m: string[]) => {
         const isAssign = rule.id === "password-assignment";
         const value = isAssign ? m[2]! : m[0]!;
-        if (isAssign && /^(«SECRET_\d+»|\*+|x+|dummy|changeme|placeholder|your[_-].*|<.*>|\{\{.*\}\})$/i.test(value)) return m[0]!;
+        if (isAssign && /^(«SECRET_\d+»|\*+|x+|dummy|changeme|placeholder|your[_-].*|<.*>|\{\{.*)$/i.test(value)) return m[0]!;
         let ph = this.seen.get(value);
         if (!ph) {
           ph = `«SECRET_${this.seen.size + 1}»`;
