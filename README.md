@@ -26,7 +26,6 @@ factory start "Return 404 instead of 500 when an order ID doesn't exist" --proje
 - [Your first run](#your-first-run)
 - [Command reference](#command-reference)
 - [Safety model](#safety-model)
-- [Cost](#cost)
 - [Troubleshooting](#troubleshooting)
 - [Project layout](#project-layout)
 - [Development](#development)
@@ -86,7 +85,7 @@ flowchart TD
 | review | A reviewer (a different model family when an OpenAI key is set) reads the diff. Whether a finding blocks is decided by code. | AI + code |
 | deliver | Secret scan of every commit, an evidence manifest commit, and a PR (or a local branch). | Factory |
 
-When something keeps failing, the factory climbs a fixed ladder (retry with the errors → more effort → stronger model) and then **parks** the run for you. Hard caps on attempts, cost and time stop runaway runs.
+When something keeps failing, the factory climbs a fixed ladder (retry with the errors → more effort → stronger model) and then **parks** the run for you. Hard limits on attempts, spend and time stop runaway runs; `factory status <run>` shows the running cost.
 
 ---
 
@@ -195,7 +194,7 @@ nano ~/.factory/.env
 # ~/.factory/.env
 ANTHROPIC_API_KEY=sk-ant-...
 # OPENAI_API_KEY=sk-...        # optional: critic and review use a second model family
-# SHOP_TEST_DB_PASSWORD=  # only if your repo's tests hardcode a DB password (see below)
+# SHOP_TEST_DB_PASSWORD=       # only if your repo's tests hardcode a DB password (see below)
 ```
 
 ```bash
@@ -229,7 +228,7 @@ ok   projects: shop-api.yaml
 The factory works on a local git clone inside Ubuntu, never on `C:\`. If the repo is already on your Windows drive, a local clone is enough (no network, no credentials):
 
 ```bash
-git clone --branch <your-branch> /mnt/c/Users/<you>/source/repos/shop-api ~/code/shop-api
+git clone --branch main /mnt/c/Users/<you>/source/repos/shop-api ~/code/shop-api
 ```
 
 ### 2. Write `~/.factory/projects/<name>.yaml`
@@ -237,8 +236,8 @@ git clone --branch <your-branch> /mnt/c/Users/<you>/source/repos/shop-api ~/code
 Start from [`docs/project-example.yaml`](docs/project-example.yaml). No secrets go in this file, only the **names** of variables in `~/.factory/.env`.
 
 ```yaml
-project: shop-api                          # the name you pass to --project
-repo: /home/<you>/code/shop-api        # inside Linux
+project: shop-api                           # the name you pass to --project
+repo: /home/<you>/code/shop-api             # inside Linux
 baseBranch: main
 stack: dotnet
 dotnet:
@@ -247,15 +246,15 @@ dotnet:
   testTimeoutSec: 2400
 database:                                    # a throwaway Postgres for the tests
   image: postgres:16-alpine
-  name: ShopTestDb                      # the database your tests expect
+  name: ShopTestDb                           # the database your tests expect
   user: postgres                             # the login your tests use (created WITHOUT superuser)
-  passwordEnv: SHOP_TEST_DB_PASSWORD    # its password, stored in ~/.factory/.env
+  passwordEnv: SHOP_TEST_DB_PASSWORD         # its password, stored in ~/.factory/.env
   producerEnv:                               # settings only the test container receives
     ConnectionStrings__DefaultConnection: "Host={{DB_HOST}};Port={{DB_PORT}};Database={{DB_NAME}};Username={{DB_USER}};Password={{DB_PASSWORD}}"
 agentEnv:                                    # dummy values where the AI works
   ConnectionStrings__DefaultConnection: "Host=localhost;Database=dummy;Username=dummy;Password=dummy"
 noGo:                                        # paths the AI never sees
-  - "web/**"
+  - "web/**"                                 # e.g. a frontend folder the backend change shouldn't touch
 # forge: { kind: github, repo: owner/name, tokenEnv: GITHUB_TOKEN }   # add only when you want real PRs
 ```
 
@@ -360,21 +359,6 @@ Decisions (`answer`, `approve`, `reject`, `steer`) only work from an interactive
 | Tests can't be weakened | Locked by fingerprint; test projects and runner config are protected; every expected test must actually run. |
 | Nothing unverified ships | Pushed code = the exact commit the gates judged + one manifest-only commit. |
 | Test database is disposable | A fresh Postgres per check, reachable only from the test container, with a non-superuser login. |
-
----
-
-## Cost
-
-Every model call is logged with its cost. Each run has a hard cap and **parks** when it hits it:
-
-| Change size | Cap |
-|---|---|
-| Bugfix | $5 |
-| Small (S) | $5 |
-| Medium (M) | $10 |
-| Large (L) | $20 |
-
-Rough guide (to be confirmed by real runs): a small bugfix is a few dollars. `factory status <run>` shows the running cost. Set a monthly limit in your Anthropic console as a second safety net.
 
 ---
 

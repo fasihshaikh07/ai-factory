@@ -1,6 +1,6 @@
 # Copy to ~/.factory/projects/<name>.yaml and edit. No secrets in this file.
-project: shop-api               # lowercase name you'll pass to --project
-repo: /home/<you>/code/shop-api   # must be inside Linux (not /mnt/c/...)
+project: shop-api                  # lowercase name you'll pass to --project
+repo: /home/<you>/code/shop-api     # must be inside Linux (not /mnt/c/...)
 baseBranch: main
 stack: dotnet
 dotnet:
@@ -11,7 +11,7 @@ database:                          # throwaway Postgres for tests (never your re
   image: postgres:16-alpine
   name: app_test                    # the database your tests expect
   # user: postgres                  # the login your tests hardcode (created WITHOUT superuser)
-  # passwordEnv: MYREPO_TEST_DB_PASSWORD   # its password, stored in ~/.factory/.env
+  # passwordEnv: SHOP_TEST_DB_PASSWORD   # its password, stored in ~/.factory/.env
   producerEnv:                     # only the test container gets these
     ConnectionStrings__DefaultConnection: "Host={{DB_HOST}};Port={{DB_PORT}};Database={{DB_NAME}};Username={{DB_USER}};Password={{DB_PASSWORD}}"
 agentEnv:                          # dummy values so the app compiles where the AI works
