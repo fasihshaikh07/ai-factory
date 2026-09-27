@@ -72,9 +72,11 @@ if [ "$(node_major)" -lt "$NODE_MAJOR" ]; then
     note "Installing nvm"
     curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | PROFILE=/dev/null bash >/dev/null
     . "$NVM_DIR/nvm.sh"
+    # load nvm in new terminals (zsh is the Mac default, bash elsewhere)
+    [ "$PLATFORM" = mac ] && touch "$HOME/.zshrc"
     for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-      [ -f "$rc" ] || [ "$(basename "$rc")" = ".zshrc" -a "$PLATFORM" = mac ] || continue
-      grep -q 'NVM_DIR' "$rc" 2>/dev/null || printf '\nexport NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' >> "$rc"
+      [ -f "$rc" ] || continue
+      grep -q 'NVM_DIR' "$rc" || printf '\nexport NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' >> "$rc"
     done
   fi
   nvm install "$NODE_MAJOR" >/dev/null && nvm alias default "$NODE_MAJOR" >/dev/null
@@ -107,7 +109,10 @@ else
       | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
     sudo apt-get update -qq && sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin
   fi
-  systemctl is-active --quiet docker || sudo systemctl enable --now docker
+  # start the service only if Docker isn't already answering (it may run without systemd)
+  if ! /usr/bin/docker info >/dev/null 2>&1 && ! sg docker -c "/usr/bin/docker info" >/dev/null 2>&1; then
+    systemctl is-active --quiet docker 2>/dev/null || sudo systemctl enable --now docker
+  fi
   DOCKER=/usr/bin/docker
   if ! id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
     sudo usermod -aG docker "$USER"
