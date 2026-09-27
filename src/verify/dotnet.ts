@@ -9,6 +9,7 @@ import { fillTemplate, type ProjectConfig } from "../config/project.js";
 import { hardenedEnv } from "../ledger/git.js";
 import { sha256 } from "../util/hash.js";
 import { factoryHome } from "../util/paths.js";
+import { FEED_PROXY_URL, FEEDS_NET } from "../runners/netinfra.js";
 import { type ContainerRuntime, type ContainerSpec, stopAndRemove } from "./runtime.js";
 import { parseTrx } from "./trx.js";
 import { buildTestRun, type Expectations, markFlaky, needsProbe, rerunCandidates } from "./validate.js";
@@ -102,9 +103,10 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
     copyTree(inp.repo, inp.commit, src);
     const toolVersions: Record<string, string> = { sdkImage: await rt.imageDigest(project.dotnet.sdkImage) };
 
-    // restore. POC: plain network in R only. The TLS feed proxy (verify-runner §2.3) is not built yet.
+    // restore: only package feeds, through the feed proxy (host allowlist; URL-prefix TLS proxy not built yet)
     const r = await launch({
-      role: "restore", image: project.dotnet.sdkImage, network: "bridge", workdir: "/src", env: BASE_ENV,
+      role: "restore", image: project.dotnet.sdkImage, network: FEEDS_NET, workdir: "/src",
+      env: { ...BASE_ENV, HTTPS_PROXY: FEED_PROXY_URL, HTTP_PROXY: FEED_PROXY_URL, NUGET_CERT_REVOCATION_MODE: "offline" },
       mounts: [{ src, dst: "/src" }, { src: nuget, dst: "/nuget" }], cmd: ["dotnet", "restore", ...sln],
     });
     const rCode = await rt.wait(r, project.dotnet.buildTimeoutSec * 1000);
