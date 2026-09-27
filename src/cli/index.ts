@@ -120,6 +120,48 @@ program.command("steer").argument("<run>").argument("<file>", "a text file descr
     log("Change recorded. Note: applying changes mid-run (re-spec, re-plan) isn't built yet; the run will park when it sees it.");
   });
 
+program.command("baseline").requiredOption("--project <name>")
+  .description("build and test the untouched repo in the test lab (no model calls)")
+  .action(async (o: { project: string }) => {
+    const project = loadProject(o.project);
+    const { resolveRef } = await import("../ledger/git.js");
+    const { produceDotnetTests } = await import("../verify/dotnet.js");
+    const { DockerCli } = await import("../verify/runtime.js");
+    const { ensureEgress, feedHostsFrom } = await import("../runners/netinfra.js");
+    const { DEFAULT_POLICY } = await import("../gates/policy.js");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const commit = await resolveRef(project.repo, project.baseBranch);
+    const rt = new DockerCli();
+    log(`baseline for ${project.project} @ ${commit.slice(0, 8)}: starting proxies`);
+    await ensureEgress(rt, feedHostsFrom(DEFAULT_POLICY.registryAllowlist));
+    const pk = join(factoryHome(), "tmp", `baseline-${project.project}`, "nuget");
+    mkdirSync(pk, { recursive: true });
+    const started = Date.now();
+    const out = await produceDotnetTests({
+      runId: `baseline-${project.project}`, key: "baseline", repo: project.repo, commit, stage: "baseline",
+      exp: { expectPass: [], expectFail: [], compareToBaseline: [] }, project, rt, packagesDir: pk,
+      onContainer: async (id, role) => log(`  container ${role} ${id.slice(0, 12)}`),
+    });
+    const secs = Math.round((Date.now() - started) / 1000);
+    if (!out.build.ok) {
+      log(`build FAILED after ${secs}s`);
+      for (const e of out.build.errors.slice(0, 15)) log(`  ${e.file}:${e.line} ${e.code} ${e.msg}`);
+      log(`--- restore log tail ---\n${out.logs.restore.split("\n").slice(-25).join("\n")}`);
+      log(`--- build log tail ---\n${out.logs.build.split("\n").slice(-25).join("\n")}`);
+      process.exitCode = 1;
+      return;
+    }
+    const r = out.testRun.results;
+    const failed = r.filter((x) => x.outcome === "failed");
+    log(`done in ${secs}s: ${r.length} tests, ${r.filter((x) => x.outcome === "passed").length} passed, ${failed.length} failed, ${r.filter((x) => x.outcome === "skipped").length} skipped; exit ${out.testRun.exitCode}; valid=${out.testRun.valid}`);
+    for (const f of failed.slice(0, 10)) log(`  FAIL ${f.id} [${f.failureKind}] ${(f.message ?? "").split("\n")[0]!.slice(0, 160)}`);
+    if (!r.length) log(`--- test log tail ---\n${out.logs.test.split("\n").slice(-30).join("\n")}`);
+    const dir = join(factoryHome(), "repos", project.project);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `baseline-${commit}.json`), JSON.stringify(out.testRun));
+    log(`saved; discover will reuse it for this commit`);
+  });
+
 program.command("verify-evidence").argument("<run>").description("re-check every recorded gate decision").action((run: string) => {
   const checks = verifyEvidence(openRun(run));
   for (const c of checks) log(`${c.ok ? "ok  " : "FAIL"} #${c.seq} ${c.gateId}${c.reason ? `: ${c.reason}` : ""}`);
