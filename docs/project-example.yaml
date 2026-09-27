@@ -6,9 +6,12 @@ stack: dotnet
 dotnet:
   sdkImage: mcr.microsoft.com/dotnet/sdk:8.0   # match the repo's global.json
   solution: ShopApi.sln                     # optional
+  # runnerArgs: ["xUnit.ParallelizeTestCollections=false"]   # extra test-runner settings
 database:                          # throwaway Postgres for tests (never your real DB)
   image: postgres:16-alpine
-  name: app_test
+  name: app_test                    # the database your tests expect
+  # user: postgres                  # the login your tests hardcode (created WITHOUT superuser)
+  # passwordEnv: MYREPO_TEST_DB_PASSWORD   # its password, stored in ~/.factory/.env
   producerEnv:                     # only the test container gets these
     ConnectionStrings__DefaultConnection: "Host={{DB_HOST}};Port={{DB_PORT}};Database={{DB_NAME}};Username={{DB_USER}};Password={{DB_PASSWORD}}"
 agentEnv:                          # dummy values so the app compiles where the AI works
