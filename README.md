@@ -4,7 +4,7 @@
 
 ![status](https://img.shields.io/badge/status-experimental%20POC-orange)
 ![node](https://img.shields.io/badge/node-%E2%89%A5%2022-339933)
-![platform](https://img.shields.io/badge/platform-Linux%20%7C%20WSL2-blue)
+![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue)
 ![tests](https://img.shields.io/badge/tests-vitest-6E9F18)
 
 AI Factory is a command-line tool. You type what you want changed. It asks you only the questions that matter, writes a spec, plans the work, and asks you to approve. Then it writes the tests first, implements the change, runs every check itself in sealed containers, and hands you a branch (or a PR) with the evidence attached.
@@ -22,9 +22,10 @@ factory start "Return 404 instead of 500 when an order ID doesn't exist" --proje
 - [What's built / what isn't](#whats-built--whats-not)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Configure a project](#configure-a-project)
+- [Add a project](#add-a-project)
 - [Your first run](#your-first-run)
 - [Command reference](#command-reference)
+- [Use it from Claude Code](#use-it-from-claude-code)
 - [Safety model](#safety-model)
 - [Troubleshooting](#troubleshooting)
 - [Project layout](#project-layout)
@@ -107,103 +108,60 @@ When something keeps failing, the factory climbs a fixed ladder (retry with the 
 
 ## Requirements
 
-| | Version | Notes |
-|---|---|---|
-| OS | Linux, or **Windows 10/11 with WSL2 + Ubuntu** | The factory refuses to run on `C:\` paths (`/mnt/c/...`). |
-| Node.js | **22+** | Install with nvm. |
-| Git | any recent | |
-| Docker | **Docker Engine CE inside Ubuntu** | Not Docker Desktop (licensing). Podman also works. |
-| API key | Anthropic (required), OpenAI (optional) | Pay-as-you-go API credits. A Claude Pro/Max subscription is **not** an API key. |
-| Disk | ~10 GB free | .NET SDK and Postgres images, package caches. |
+| | |
+|---|---|
+| **Computer** | macOS (Apple Silicon or Intel), Windows 10/11, or Ubuntu |
+| **Disk** | ~15 GB free (container images and package caches) |
+| **API key** | An Anthropic API key with credit (required). An OpenAI key is optional. A Claude Pro/Max subscription is **not** an API key: create one at [console.anthropic.com](https://console.anthropic.com) → API Keys. |
+| **Access** | Read access to this GitHub repo |
+
+Everything else (Node, containers, the `factory` command, images, the Claude Code connection) is installed by the setup script.
 
 ---
 
 ## Installation
 
-> Windows users: do **every** step below inside the **Ubuntu** terminal (the prompt looks like `you@machine:~$`), not PowerShell.
+One command per system. It's safe to run again: it skips whatever is already done and only asks for your password when it installs something. At the end it asks for your API key (typing is hidden) and runs `factory doctor`.
 
-### 1. WSL2 + Ubuntu (Windows only)
+### macOS
 
-In PowerShell **as administrator**:
+Open **Terminal** and run:
+
+```bash
+git clone https://github.com/im-ahsan/ai-factory.git ~/ai-factory && ~/ai-factory/scripts/setup.sh
+```
+
+> If a window asks to install Apple's command line tools, click **Install**, then run the same command again.
+
+It installs Homebrew, Node 22, and **Colima** (a free, lightweight way to run the containers; Docker Desktop isn't needed).
+
+### Windows
+
+Open **PowerShell as administrator** (right-click → *Run as administrator*) and run:
 
 ```powershell
-wsl --install -d Ubuntu
+git clone https://github.com/im-ahsan/ai-factory.git $env:TEMP\ai-factory; powershell -ExecutionPolicy Bypass -File $env:TEMP\ai-factory\install.ps1
 ```
 
-Restart, open **Ubuntu** from the Start menu, and create your Linux user. Make sure systemd is on:
+> No git on Windows? Download [`install.ps1`](install.ps1) from GitHub and run `powershell -ExecutionPolicy Bypass -File install.ps1` from your Downloads folder.
+
+The first time, it installs WSL + Ubuntu and asks you to create a Linux username and password (and may ask for a restart). **Run the same command again afterwards**; it then installs everything inside Ubuntu and connects VS Code. From then on, open the factory with:
+
+```powershell
+wsl -d Ubuntu -- code ~/ai-factory
+```
+
+The VS Code terminal is already Ubuntu; run all `factory` commands there.
+
+### Ubuntu / Linux
 
 ```bash
-cat /etc/wsl.conf        # should contain: [boot] systemd=true
+git clone https://github.com/im-ahsan/ai-factory.git ~/ai-factory && ~/ai-factory/scripts/setup.sh
 ```
 
-If it doesn't, add it (`sudo nano /etc/wsl.conf`), then run `wsl --shutdown` in PowerShell and reopen Ubuntu.
+### After setup
 
-### 2. Node.js 22 (via nvm)
-
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 22
-node -v                  # v22.x
-```
-
-### 3. Docker Engine inside Ubuntu
-
-```bash
-sudo apt-get update && sudo apt-get install -y ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list
-sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-sudo usermod -aG docker $USER
-```
-
-Then in PowerShell run `wsl --shutdown`, reopen Ubuntu and check:
-
-```bash
-which docker             # must be /usr/bin/docker
-docker run --rm hello-world
-```
-
-> If `which docker` shows a `/mnt/c/.../DockerDesktop/...` path, open Docker Desktop → **Settings → Resources → WSL integration** and untick Ubuntu (or quit Docker Desktop).
-
-### 4. Get the factory
-
-```bash
-mkdir -p ~/code && cd ~/code
-git clone https://github.com/im-ahsan/ai-factory.git
-cd ai-factory
-npm install
-npm run build
-npm link                 # installs the `factory` command
-factory --help
-```
-
-> Don't want `npm link`? Use `npm run factory -- <command>` from inside the folder instead of `factory <command>`.
-
-### 5. Your secrets file
-
-Create it yourself. **Never paste keys into chat, tickets or the repo.**
-
-```bash
-mkdir -p ~/.factory && chmod 700 ~/.factory
-nano ~/.factory/.env
-```
-
-```ini
-# ~/.factory/.env
-ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_API_KEY=sk-...        # optional: critic and review use a second model family
-# SHOP_TEST_DB_PASSWORD=       # only if your repo's tests hardcode a DB password (see below)
-```
-
-```bash
-chmod 600 ~/.factory/.env
-```
-
-Get an Anthropic key at [console.anthropic.com](https://console.anthropic.com) → **API Keys** (add credit under **Billing** first; set a monthly limit under **Limits**). If you sign in with a company email you may need your organisation admin to approve you.
-
-### 6. Check everything
+Open a **new** terminal, then:
 
 ```bash
 factory doctor
@@ -211,64 +169,63 @@ factory doctor
 
 ```
 ok   Node v22.x
-ok   running inside Linux (WSL2), not on a Windows drive
 ok   container runtime: /usr/bin/docker
 ok   ~/.factory/.env exists
 ok   ANTHROPIC_API_KEY set in ~/.factory/.env
 note OPENAI_API_KEY not set: critic and review will use Claude (single family)
-ok   projects: shop-api.yaml
 ```
+
+Skipped the key during setup? Add it any time: `nano ~/.factory/.env` → `ANTHROPIC_API_KEY=sk-ant-...`. Never paste keys into chat, tickets or the repo.
+
+<details>
+<summary><b>What the setup does</b> (and how to do it by hand)</summary>
+
+| Step | macOS | Windows / Ubuntu |
+|---|---|---|
+| Base | Apple command line tools, Homebrew | WSL + Ubuntu with systemd (Windows), git, curl |
+| Node 22 | nvm | nvm |
+| Containers | `brew install colima docker`, `colima start --cpu 4 --memory 8` | Docker Engine CE from Docker's apt repo, your user added to the `docker` group |
+| Factory | `npm ci && npm run build && npm link` | same |
+| Secrets | `~/.factory/.env` (mode 600) | same |
+| Images | `node:22-alpine`, `postgres:16-alpine`, `mcr.microsoft.com/dotnet/sdk:8.0`, and `factory-agent:dotnet8` built from `docker/agent` | same |
+| Claude Code | `claude mcp add -s user ai-factory -- node <repo>/dist/cli/index.js mcp` (only if Claude Code is installed) | same |
+| Windows extras | – | Ubuntu's git uses your Windows GitHub sign-in; VS Code WSL extension |
+
+Docker Desktop is never used (licensing). The factory refuses to run against it.
+
+</details>
 
 ---
 
-## Configure a project
+## Add a project
 
-### 1. Put the target repo inside Linux
-
-The factory works on a local git clone inside Ubuntu, never on `C:\`. If the repo is already on your Windows drive, a local clone is enough (no network, no credentials):
+Point `factory init` at a .NET repo: a local folder (Windows paths like `/mnt/c/...` are fine) or a git URL.
 
 ```bash
-git clone --branch main /mnt/c/Users/<you>/source/repos/shop-api ~/code/shop-api
+factory init /mnt/c/Users/<you>/source/repos/shop-api     # Windows
+factory init ~/code/shop-api                              # Mac / Linux
+factory init https://github.com/<org>/shop-api.git        # or a URL
 ```
 
-### 2. Write `~/.factory/projects/<name>.yaml`
+```
+Project shop-api
+  repo        /home/<you>/code/shop-api (branch main)
+  solution    ShopApi.sln
+  .NET        net8.0 → mcr.microsoft.com/dotnet/sdk:8.0
+  database    Postgres; tests log in as "shop" to ShopTestDb (tests/Shop.Tests/DbFixture.cs)
+  hidden      web (frontend folders the AI won't see)
 
-Start from [`docs/project-example.yaml`](docs/project-example.yaml). No secrets go in this file, only the **names** of variables in `~/.factory/.env`.
-
-```yaml
-project: shop-api                           # the name you pass to --project
-repo: /home/<you>/code/shop-api             # inside Linux
-baseBranch: main
-stack: dotnet
-dotnet:
-  sdkImage: mcr.microsoft.com/dotnet/sdk:8.0   # match the repo's target framework
-  solution: ShopApi.sln
-  testTimeoutSec: 2400
-database:                                    # a throwaway Postgres for the tests
-  image: postgres:16-alpine
-  name: ShopTestDb                           # the database your tests expect
-  user: postgres                             # the login your tests use (created WITHOUT superuser)
-  passwordEnv: SHOP_TEST_DB_PASSWORD         # its password, stored in ~/.factory/.env
-  producerEnv:                               # settings only the test container receives
-    ConnectionStrings__DefaultConnection: "Host={{DB_HOST}};Port={{DB_PORT}};Database={{DB_NAME}};Username={{DB_USER}};Password={{DB_PASSWORD}}"
-agentEnv:                                    # dummy values where the AI works
-  ConnectionStrings__DefaultConnection: "Host=localhost;Database=dummy;Username=dummy;Password=dummy"
-noGo:                                        # paths the AI never sees
-  - "web/**"                                 # e.g. a frontend folder the backend change shouldn't touch
-# forge: { kind: github, repo: owner/name, tokenEnv: GITHUB_TOKEN }   # add only when you want real PRs
+Wrote ~/.factory/projects/shop-api.yaml
+Next: factory baseline --project shop-api
 ```
 
-| Field | Meaning |
-|---|---|
-| `database.user` / `passwordEnv` | Use when your tests hardcode a login (e.g. in a test fixture). Leave out and the factory makes its own. |
-| `producerEnv` | Environment for the **test** container only. `{{DB_*}}` are filled in by the factory. |
-| `agentEnv` | Dummy environment for the **coding** container, so the app compiles. Never put real secrets here. |
-| `noGo` | Globs hidden from every AI step. |
-| `dotnet.runnerArgs` | Extra test-runner settings passed on the command line, e.g. `["xUnit.ParallelizeTestCollections=false"]`. |
-| `steps` | Override the model per step (advanced; see `src/stages/routing.ts`). |
-| `forge` | GitHub repo to push and open PRs. Without it, delivery leaves a ready branch locally. |
+What it does for you:
+- **Copies the repo into Linux** when it's on a Windows drive or a URL (the factory never works on `C:`).
+- **Detects** the solution, the .NET version (→ build image), Postgres, and a database login the tests hardcode. That password goes to `~/.factory/.env`, never into the config.
+- **Hides** frontend folders from the AI and **warns** about anything the POC can't run yet.
+- Writes `~/.factory/projects/<name>.yaml` (no secrets). Tweak it if you need to; see [`docs/project-example.yaml`](docs/project-example.yaml).
 
-### 3. Record the baseline (no AI, no cost)
+Then record the baseline (builds and tests the untouched repo; no AI, no cost):
 
 ```bash
 factory baseline --project shop-api
@@ -278,7 +235,24 @@ factory baseline --project shop-api
 done in 95s: 412 tests, 405 passed, 7 failed, 0 skipped; exit 1; valid=true
 ```
 
-Tests that already fail are fine: they're remembered, and a run is only blamed for **new** failures. But code covered only by failing tests has no protection, so pick demo changes elsewhere.
+Tests that already fail are fine: they're remembered, and a run is only blamed for **new** failures. But code covered only by failing tests has no protection, so pick changes elsewhere.
+
+<details>
+<summary><b>Project config reference</b></summary>
+
+| Field | Meaning |
+|---|---|
+| `repo`, `baseBranch` | The local clone and the branch runs start from. |
+| `dotnet.sdkImage` / `solution` | Build image and solution file. |
+| `database.name` / `user` / `passwordEnv` | The test database, and the login your tests hardcode (created without superuser). The password lives in `~/.factory/.env`. |
+| `producerEnv` | Environment for the **test** container only. `{{DB_*}}` are filled in by the factory. |
+| `agentEnv` | Dummy environment for the **coding** container, so the app compiles. Never real secrets. |
+| `noGo` | Globs hidden from every AI step. |
+| `dotnet.runnerArgs` | Extra test-runner settings, e.g. `["xUnit.ParallelizeTestCollections=false"]`. |
+| `forge` | GitHub repo to push to and open PRs (`{ kind: github, repo: owner/name, tokenEnv: GITHUB_TOKEN }`). Without it, delivery leaves a ready branch locally. |
+| `steps` | Override the model per step (advanced; see `src/stages/routing.ts`). |
+
+</details>
 
 ---
 
@@ -329,7 +303,9 @@ The branch `factory/<run>` holds the stub commit (if any), the locked tests, one
 
 | Command | What it does |
 |---|---|
-| `factory doctor` | Checks Node, WSL, Docker, secrets and projects. |
+| `factory doctor` | Checks Node, containers, secrets and projects. |
+| `factory init <repo>` | Adds a project: copies the repo into Linux if needed, detects settings, writes the config. |
+| `factory mcp` | Runs the MCP server for Claude Code (registered by setup). |
 | `factory baseline --project <p>` | Builds and tests the untouched repo in the test lab. No AI. |
 | `factory start "<request>" --project <p>` | Creates a run and executes until a card, a park or delivery. |
 | `factory status [run]` | All recent runs, or one run's steps, cost and open card. |
@@ -343,6 +319,22 @@ The branch `factory/<run>` holds the stub commit (if any), the locked tests, one
 | `factory verify-evidence <run>` | Re-runs every gate decision from the ledger. |
 
 Decisions (`answer`, `approve`, `reject`, `steer`) only work from an interactive terminal, so no script, plugin or AI can approve its own plan.
+
+---
+
+## Use it from Claude Code
+
+Setup registers an MCP server called **ai-factory** in Claude Code (if you have Claude Code installed). In any Claude Code session you can say things like *"start a factory run on shop-api to return 404 for missing orders"* or *"what's the status of my factory run?"*.
+
+| Tool | Does |
+|---|---|
+| `factory_projects` | Lists your projects. |
+| `factory_start` | Starts a run in the background. |
+| `factory_status` | Shows a run (or recent runs). |
+| `factory_show_card` | Shows the open card or the PR text. |
+| `factory_verify_evidence` | Re-checks a run's decisions. |
+
+By design it **can't answer questions or approve plans**. Those always happen in your own terminal (`factory answer`, `factory approve`), so no AI can approve its own plan.
 
 ---
 
@@ -366,15 +358,18 @@ Decisions (`answer`, `approve`, `reject`, `steer`) only work from an interactive
 
 | Symptom | Fix |
 |---|---|
-| `No container runtime inside Linux… Docker Desktop, not used` | Install Docker Engine in Ubuntu (step 3) and untick Ubuntu under Docker Desktop's WSL integration. |
-| `permission denied … /var/run/docker.sock` | `sudo usermod -aG docker $USER`, then `wsl --shutdown` and reopen Ubuntu. |
-| `Path … is on a Windows drive` | Clone the repo into Ubuntu (`~/code/...`) and point `repo:` there. |
+| `No usable container runtime` | Run `scripts/setup.sh` again. Mac: `colima start`. Windows/Linux: `sudo systemctl start docker`. |
+| `Docker Desktop is answering…` | Mac: `docker context use colima`. Windows: in Docker Desktop settings untick Ubuntu under WSL integration (or quit Docker Desktop). |
+| `permission denied … /var/run/docker.sock` | Open a new terminal (setup added you to the `docker` group). Still failing on Windows: `wsl --shutdown` in PowerShell, reopen Ubuntu. |
+| `Path … is on a Windows drive` | Use `factory init <path>`; it copies the repo into Ubuntu for you. |
 | `X is missing in ~/.factory/.env` | Add that variable to `~/.factory/.env`. |
 | `The untouched repo doesn't build in the test lab` | Check `dotnet.sdkImage` matches the repo's framework; check private NuGet feeds (not supported yet). |
 | Many tests fail in `baseline` | Check whether they fail on your machine too. If yes, they're pre-existing and remembered. If not, compare DB settings (`database:`) and seed data. |
 | `Repo is busy: run … is executing` | Only one run executes per repo at a time. Wait, or `factory stop` the other run. |
 | A run is `parked` | `factory status <run>` shows why; fix it and `factory resume <run>`. |
 | `.env` not visible in VS Code | It's in `~/.factory/`, not the project. `code ~/.factory/.env`. |
+| Git asks for a password (Windows) | GitHub needs a token, not your password. Re-run `install.ps1`; it connects Ubuntu's git to your Windows GitHub sign-in. |
+| Mac: builds are slow or run out of memory | `colima stop && colima start --cpu 6 --memory 12` |
 
 Everything a run did is in `~/.factory/ledger/<run>/` (`events.jsonl` plus content-addressed artifacts and cards).
 
@@ -394,6 +389,8 @@ ai-factory/
 │   ├── stages/      the pipeline steps and the executor
 │   ├── config/      project config and secrets loading
 │   └── cli/         the `factory` command
+├── scripts/setup.sh  one-command setup (macOS, Ubuntu, WSL)
+├── install.ps1       Windows installer (WSL + Ubuntu, then setup.sh)
 ├── docker/
 │   ├── agent/       the coding container image (.NET SDK + Node + Claude Agent SDK)
 │   └── proxy/       the egress proxy (adds API keys, allowlists package feeds)

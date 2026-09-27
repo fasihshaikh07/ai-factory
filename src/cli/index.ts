@@ -169,6 +169,69 @@ program.command("verify-evidence").argument("<run>").description("re-check every
   if (!checks.every((c) => c.ok)) process.exitCode = 1;
 });
 
+program.command("init").argument("<repo>", "a local repo path (Windows paths like /mnt/c/... are fine) or a git URL")
+  .option("--branch <name>", "base branch (default: the repo's current branch)")
+  .option("--name <name>", "project name (default: from the folder name)")
+  .option("--force", "overwrite an existing project config")
+  .description("set up a project: copy the repo into Linux if needed, detect its settings, write the config")
+  .action(async (repoArg: string, o: { branch?: string; name?: string; force?: boolean }) => {
+    const { execFileSync } = await import("node:child_process");
+    const { appendFileSync, mkdirSync, writeFileSync, chmodSync } = await import("node:fs");
+    const { homedir } = await import("node:os");
+    const { detectDotnet, envVarFor, projectYaml, slugName } = await import("../config/detect.js");
+    const { loadFactoryEnv, _resetEnvCache } = await import("../config/env.js");
+    const isUrl = /^(https?:\/\/|git@|ssh:\/\/)/.test(repoArg);
+    const src = isUrl ? repoArg : (await import("node:path")).resolve(repoArg);
+    const name = o.name ?? slugName(isUrl ? repoArg.replace(/\.git$/, "").split(/[/:]/).pop()! : src);
+    let repo = src;
+    // repos must live inside Linux; copy anything on a Windows drive (or a URL) into ~/code/<name>
+    if (isUrl || /^\/mnt\/[a-z]\//i.test(src)) {
+      repo = join(homedir(), "code", name);
+      if (existsSync(repo)) log(`Using the existing copy at ${repo}`);
+      else {
+        mkdirSync(join(homedir(), "code"), { recursive: true });
+        const branchArgs = o.branch ? ["--branch", o.branch] : [];
+        log(`Copying the repo to ${repo} (inside Linux, where the factory works)…`);
+        execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*", "clone", ...(isUrl ? [] : ["--no-hardlinks"]), ...branchArgs, src, repo], { stdio: "inherit" });
+      }
+    }
+    if (!existsSync(join(repo, ".git"))) throw new Error(`${repo} isn't a git repository`);
+    const branch = o.branch ?? execFileSync("git", ["-c", "safe.directory=*", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+    const d = detectDotnet(repo);
+    d.name = name;
+    if (!d.targetFrameworks.length) throw new Error("No .NET projects found. The POC supports .NET repos (other stacks come later).");
+    log(`\nProject ${name}`);
+    log(`  repo        ${repo} (branch ${branch})`);
+    log(`  solution    ${d.solution ?? "(none; dotnet will pick)"}`);
+    log(`  .NET        ${d.targetFrameworks.join(", ")} → ${d.sdkImage}`);
+    log(`  database    ${d.usesPostgres ? `Postgres${d.testDb ? `; tests log in as "${d.testDb.user}" to ${d.testDb.database} (${d.testDb.file})` : ""}` : "none detected"}`);
+    if (d.frontendDirs.length) log(`  hidden      ${d.frontendDirs.join(", ")} (frontend folders the AI won't see)`);
+    if (d.refusals.length) log(`\n  ⚠ Not supported yet: ${d.refusals.join("; ")}`);
+
+    const file = projectPath(name);
+    if (existsSync(file) && !o.force) throw new Error(`${file} already exists (use --force to overwrite)`);
+    mkdirSync(join(factoryHome(), "projects"), { recursive: true, mode: 0o700 });
+    writeFileSync(file, projectYaml(d, repo, branch));
+    // the tests' own hardcoded DB password goes to ~/.factory/.env (never printed, never in the YAML)
+    if (d.testDb) {
+      const key = envVarFor(name, "TEST_DB_PASSWORD");
+      if (!loadFactoryEnv()[key]) {
+        const envFile = join(factoryHome(), ".env");
+        appendFileSync(envFile, `${key}=${d.testDb.password}\n`, { mode: 0o600 });
+        chmodSync(envFile, 0o600);
+        _resetEnvCache();
+        log(`  saved the tests' database password to ~/.factory/.env as ${key}`);
+      }
+    }
+    log(`\nWrote ${file}\nNext: factory baseline --project ${name}   (builds and tests the untouched repo; no AI, no cost)`);
+  });
+
+program.command("mcp").description("run the MCP server (for Claude Code: start runs, read status and cards; no decisions)")
+  .action(async () => {
+    const { startMcpServer } = await import("../mcp/server.js");
+    await startMcpServer();
+  });
+
 program.command("doctor").description("check this machine and the setup").action(() => {
   const ok = (b: boolean, m: string, fix?: string) => log(`${b ? "ok  " : "MISSING"} ${m}${!b && fix ? `\n      → ${fix}` : ""}`);
   ok(Number(process.versions.node.split(".")[0]) >= 22, `Node ${process.version}`, "install Node 22 with nvm");

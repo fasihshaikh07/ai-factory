@@ -1,7 +1,7 @@
 // ContainerRuntime over the Docker-compatible CLI (verify-runner §2.11, run-manager §2.10).
 // Docker Engine CE or Podman inside WSL2. Never Docker Desktop's Windows binary.
 import { execFile, execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -47,26 +47,43 @@ export interface ContainerRuntime {
 
 export class RuntimeUnavailableError extends Error {}
 
-/** Find docker or podman inside Linux. A binary under /mnt/<drive> is Docker Desktop's and is refused. */
+/**
+ * Find docker or podman. Linux/WSL: Docker Engine CE. macOS: Colima (free Docker Engine in a small VM).
+ * Docker Desktop is never used (licence): a binary under /mnt/<drive> is Windows' Docker Desktop, and a
+ * daemon that reports "Docker Desktop" is refused on any OS.
+ */
 export function findRuntimeBinary(): string {
   const tried: string[] = [];
-  for (const name of [process.env.FACTORY_CONTAINER_CLI, "docker", "podman"].filter(Boolean) as string[]) {
+  const candidates = [process.env.FACTORY_CONTAINER_CLI, "/usr/bin/docker", "/opt/homebrew/bin/docker", "/usr/local/bin/docker", "docker", "podman"]
+    .filter(Boolean) as string[];
+  for (const name of candidates) {
+    let p = "";
     try {
-      const p = execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim();
-      if (!p) continue;
-      const real = realpathSync(p);
-      if (/^\/mnt\/[a-z]\//i.test(real) || /docker-desktop|DockerDesktop/i.test(real)) {
-        tried.push(`${name} → ${real} (Docker Desktop, not used)`);
-        continue;
-      }
-      return p;
+      p = name.startsWith("/") ? (existsSync(name) ? name : "") : execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim();
     } catch {
-      tried.push(`${name} not found`);
+      p = "";
     }
+    if (!p) { tried.push(`${name} not found`); continue; }
+    const real = realpathSync(p);
+    if (/^\/mnt\/[a-z]\//i.test(real)) { tried.push(`${name} → Docker Desktop for Windows (not used)`); continue; }
+    const os = daemonOs(p);
+    if (os === undefined) { tried.push(`${name}: daemon not running`); continue; }
+    if (/docker desktop/i.test(os)) { tried.push(`${name} → Docker Desktop daemon (not used)`); continue; }
+    return p;
   }
-  throw new RuntimeUnavailableError(
-    `No container runtime inside Linux. Install Docker Engine CE in Ubuntu (not Docker Desktop). Tried: ${tried.join("; ")}`,
-  );
+  const hint = process.platform === "darwin"
+    ? "On a Mac: brew install colima docker && colima start (setup.sh does this)."
+    : "Install Docker Engine CE inside Linux/WSL, not Docker Desktop (setup.sh does this).";
+  throw new RuntimeUnavailableError(`No usable container runtime. ${hint} Tried: ${[...new Set(tried)].join("; ")}`);
+}
+
+/** The daemon's OperatingSystem string ("Ubuntu 26.04", "Docker Desktop", ...) or undefined if unreachable. */
+export function daemonOs(binary: string): string | undefined {
+  try {
+    return execFileSync(binary, ["info", "--format", "{{.OperatingSystem}}"], { encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return undefined;
+  }
 }
 
 export class DockerCli implements ContainerRuntime {
