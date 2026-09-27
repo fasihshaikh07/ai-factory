@@ -63,7 +63,7 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
 # ---------- 4. everything else, inside Ubuntu ----------
 Step "4/4 Installing the factory inside Ubuntu (it may ask for your Linux password)"
 $setupArgs = if ($NoKeys) { "--no-keys" } else { "" }
-$cmd = "cd ~ && if [ ! -d ~/ai-factory/.git ]; then git clone '$RepoUrl' ~/ai-factory; fi && ~/ai-factory/scripts/setup.sh $setupArgs"
+$cmd = "cd ~ && if [ ! -d ~/ai-factory/.git ]; then git clone '$RepoUrl' ~/ai-factory; fi && bash ~/ai-factory/scripts/setup.sh $setupArgs"
 wsl.exe -d $distro -- bash -lc $cmd
 if ($LASTEXITCODE -ne 0) { Write-Host "`nSetup stopped. Read the message above, fix it, and run this script again." -ForegroundColor Red; exit 1 }
 

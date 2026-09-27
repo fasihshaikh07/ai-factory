@@ -128,7 +128,7 @@ One command per system. It's safe to run again: it skips whatever is already don
 Open **Terminal** and run:
 
 ```bash
-git clone https://github.com/im-ahsan/ai-factory.git ~/ai-factory && ~/ai-factory/scripts/setup.sh
+git clone https://github.com/im-ahsan/ai-factory.git ~/ai-factory && bash ~/ai-factory/scripts/setup.sh
 ```
 
 > If a window asks to install Apple's command line tools, click **Install**, then run the same command again.
@@ -156,7 +156,7 @@ The VS Code terminal is already Ubuntu; run all `factory` commands there.
 ### Ubuntu / Linux
 
 ```bash
-git clone https://github.com/im-ahsan/ai-factory.git ~/ai-factory && ~/ai-factory/scripts/setup.sh
+git clone https://github.com/im-ahsan/ai-factory.git ~/ai-factory && bash ~/ai-factory/scripts/setup.sh
 ```
 
 ### After setup
@@ -358,7 +358,7 @@ By design it **can't answer questions or approve plans**. Those always happen in
 
 | Symptom | Fix |
 |---|---|
-| `No usable container runtime` | Run `scripts/setup.sh` again. Mac: `colima start`. Windows/Linux: `sudo systemctl start docker`. |
+| `No usable container runtime` | Run `bash ~/ai-factory/scripts/setup.sh` again. Mac: `colima start`. Windows/Linux: `sudo systemctl start docker`. |
 | `Docker Desktop is answering…` | Mac: `docker context use colima`. Windows: in Docker Desktop settings untick Ubuntu under WSL integration (or quit Docker Desktop). |
 | `permission denied … /var/run/docker.sock` | Open a new terminal (setup added you to the `docker` group). Still failing on Windows: `wsl --shutdown` in PowerShell, reopen Ubuntu. |
 | `Path … is on a Windows drive` | Use `factory init <path>`; it copies the repo into Ubuntu for you. |

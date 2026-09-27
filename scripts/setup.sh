@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # AI Factory setup for Ubuntu (incl. Windows WSL) and macOS.
 # Safe to run again: every step checks first and skips what's already done.
-#   ./scripts/setup.sh            full setup
-#   ./scripts/setup.sh --no-keys  don't ask for API keys (add them to ~/.factory/.env later)
+#   bash scripts/setup.sh            full setup
+#   bash scripts/setup.sh --no-keys  don't ask for API keys (add them to ~/.factory/.env later)
 set -euo pipefail
 
 ASK_KEYS=1
