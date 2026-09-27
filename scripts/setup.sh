@@ -20,10 +20,17 @@ note() { printf '  \033[33m•\033[0m %s\n' "$*"; }
 die()  { printf '\n\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 tty_ok() { [ -r /dev/tty ] && [ -w /dev/tty ]; }
+LOG="${TMPDIR:-/tmp}/ai-factory-setup.log"
+: > "$LOG"
+# quiet installs; the full output goes to $LOG and is shown only on failure
+quiet() { "$@" >>"$LOG" 2>&1 || { tail -25 "$LOG" >&2; die "Failed: $* (full log: $LOG)"; }; }
+apt_install() { quiet sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@"; }
 
 OS="$(uname -s)"
 case "$OS" in
-  Linux)  PLATFORM=linux; grep -qi microsoft /proc/version 2>/dev/null && PLATFORM=wsl ;;
+  Linux)  PLATFORM=linux; grep -qi microsoft /proc/version 2>/dev/null && PLATFORM=wsl
+          # testing only: a plain Linux container on a WSL kernel isn't WSL
+          [ "${FACTORY_SETUP_PLATFORM:-}" = linux ] && PLATFORM=linux ;;
   Darwin) PLATFORM=mac ;;
   *) die "Unsupported system: $OS. Use macOS, Ubuntu, or Windows with WSL (run install.ps1 on Windows)." ;;
 esac
@@ -42,7 +49,7 @@ if [ "$PLATFORM" = mac ]; then
   fi
   if ! have brew; then
     note "Installing Homebrew (asks for your Mac password)"
-    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   fi
   [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
   [ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"
@@ -52,7 +59,7 @@ else
   for p in git curl ca-certificates; do dpkg -s "$p" >/dev/null 2>&1 || need+=("$p"); done
   if [ ${#need[@]} -gt 0 ]; then
     note "Installing ${need[*]} (asks for your Linux password)"
-    sudo apt-get update -qq && sudo apt-get install -y -qq "${need[@]}"
+    quiet sudo apt-get update -qq && apt_install "${need[@]}"
   fi
   if [ "$PLATFORM" = wsl ] && ! grep -q "systemd=true" /etc/wsl.conf 2>/dev/null; then
     note "Turning on systemd for WSL"
@@ -107,7 +114,7 @@ else
     sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" \
       | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-    sudo apt-get update -qq && sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+    quiet sudo apt-get update -qq && apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin
   fi
   # start the service only if Docker isn't already answering (it may run without systemd)
   if ! /usr/bin/docker info >/dev/null 2>&1 && ! sg docker -c "/usr/bin/docker info" >/dev/null 2>&1; then
@@ -139,7 +146,7 @@ fi
 cd "$FACTORY_DIR"
 case "$FACTORY_DIR" in /mnt/[a-z]/*) die "The factory folder is on a Windows drive ($FACTORY_DIR). Clone it inside Ubuntu, e.g. ~/ai-factory." ;; esac
 note "Installing packages and building"
-npm ci --no-audit --no-fund --loglevel=error >/dev/null
+quiet npm ci --no-audit --no-fund --loglevel=error
 npm run -s build
 npm link --loglevel=error >/dev/null 2>&1 || npm link
 have factory || die "The 'factory' command wasn't installed (npm link failed)."
