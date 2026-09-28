@@ -165,3 +165,19 @@ describe("sinks and caps", () => {
     expect(checkCaps(replay(l2.events()))).toMatch(/6 attempts/);
   });
 });
+
+describe("audit fixes: cost cap inputs", () => {
+  it("records class from intake and size from plan", async () => {
+    const l = Ledger.create("run-caps");
+    await l.append({ type: "run.created", data: { mode: "brownfield", project: "p" } }, HUMAN_WRITER);
+    await l.append({ type: "step.started", key: "intake/1" }, HUMAN_WRITER);
+    await l.append({ type: "step.completed", key: "intake/1", data: { changeClass: "bugfix" } }, HUMAN_WRITER);
+    expect(replay(l.events()).info.changeClass).toBe("bugfix");
+    await l.append({ type: "usage", data: { "gen_ai.usage.cost_usd": 5.5 } }, HUMAN_WRITER);
+    expect(checkCaps(replay(l.events()))).toMatch(/\$5\.50 of \$5/);
+    await l.append({ type: "step.started", key: "plan/1" }, HUMAN_WRITER);
+    await l.append({ type: "step.completed", key: "plan/1", data: { complexity: "L" } }, HUMAN_WRITER);
+    expect(replay(l.events()).info.complexity).toBe("L");
+    expect(checkCaps(replay(l.events()))).toBeUndefined(); // L cap is $20
+  });
+});

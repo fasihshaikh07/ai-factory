@@ -52,7 +52,9 @@ export function modelFor(project: ProjectConfig, stage: string, rung: number): {
 
 /** Rungs this step can use. Other-vendor needs the Codex runner, which isn't built yet. */
 export function availableRungs(project: ProjectConfig, stage: string, localOnly: boolean): Set<Rung> {
-  const r = routeFor(project, stage);
+  const r = project.steps[stage] ?? DEFAULT_ROUTES[stage];
+  // deterministic steps (discover, stub-commit, integrate, accept, deliver, cards) have no model: retry only
+  if (!r) return new Set<Rung>(["retry"]);
   const s = new Set<Rung>(["retry", "raise-effort"]);
   if (r.escalate.length) s.add("stronger-model");
   // "other-vendor" is added once the Codex runner exists, and never under localOnly.

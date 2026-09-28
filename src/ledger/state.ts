@@ -141,6 +141,9 @@ export function replay(events: LedgerEvent[]): RunState {
         r.outputs = ev.outputs ?? [];
         r.treeSha = ev.treeSha;
         r.data = data;
+        // the cost cap depends on these: class from intake, size from plan
+        if (typeof data.changeClass === "string") s.info.changeClass = data.changeClass as ChangeClass;
+        if (typeof data.complexity === "string") s.info.complexity = data.complexity as Complexity;
         s.inFlight = undefined;
         closeActive(ev.ts);
         break;

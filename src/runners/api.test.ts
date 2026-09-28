@@ -98,3 +98,13 @@ describe("helpers", () => {
     expect(family("gpt-5.5")).toBe("openai");
   });
 });
+
+describe("audit fixes", () => {
+  it("sends effort only to models that accept it", async () => {
+    const { supportsEffort } = await import("./api.js");
+    expect(supportsEffort("claude-haiku-4-5")).toBe(false);
+    expect(supportsEffort("claude-sonnet-5")).toBe(true);
+    expect(supportsEffort("claude-opus-5-5")).toBe(true);
+    expect(supportsEffort("gpt-5.5")).toBe(false);
+  });
+});

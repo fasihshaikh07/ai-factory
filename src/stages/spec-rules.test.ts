@@ -72,3 +72,15 @@ describe("spec rules", () => {
     expect(good).toEqual([]);
   });
 });
+
+describe("audit fixes: model-less steps", () => {
+  it("deterministic steps get a retry-only ladder instead of crashing", async () => {
+    const { availableRungs } = await import("./routing.js");
+    const { ProjectConfig } = await import("../config/project.js");
+    const p = ProjectConfig.parse({ project: "x", repo: "/r", stack: "dotnet" });
+    for (const st of ["discover", "stub-commit", "integrate", "accept", "deliver", "clarify", "approve"]) {
+      expect([...availableRungs(p, st, false)]).toEqual(["retry"]);
+    }
+    expect([...availableRungs(p, "implement", false)]).toEqual(["retry", "raise-effort", "stronger-model"]);
+  });
+});

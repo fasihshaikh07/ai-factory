@@ -44,6 +44,10 @@ export const ProjectConfig = z.object({
   /** Read-only reference DB for discover (D9): the env var holding its connection string. */
   referenceDb: z.object({ connEnv: z.string() }).optional(),
   noGo: z.array(z.string()).default([]),
+  /** USD per million tokens for models the factory has no price for (e.g. a GPT model). */
+  prices: z.record(z.string(), z.object({
+    input: z.number(), output: z.number(), cacheRead: z.number().default(0), cacheWrite: z.number().default(0),
+  })).default({}),
   policy: z.record(z.string(), z.unknown()).default({}),
   steps: z.record(z.string(), StepRoute).default({}),
 });

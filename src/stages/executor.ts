@@ -16,6 +16,7 @@ import { canSkip, eventKey, inputsHash, replay, splitKey, type RunState } from "
 import { assertSupportedPath } from "../util/paths.js";
 import { sha256 } from "../util/hash.js";
 import { REPO_ROOT } from "../runners/netinfra.js";
+import { setPrice } from "../runners/pricing.js";
 import type { StepContext, StepDef, StepOutcome } from "./framework.js";
 import { brownfieldSteps } from "./modes.js";
 import { availableRungs, routeFor } from "./routing.js";
@@ -90,6 +91,7 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
   let state = replay(ledger.events());
   const project = loadProject(state.info.project);
   const policy = policyFor(project);
+  for (const [model, price] of Object.entries(project.prices)) setPrice(model, price);
   await applyExpiredDeadline(ledger);
 
   let lock: ExecutionLock;

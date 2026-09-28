@@ -36,6 +36,11 @@ export interface Provider {
 
 export class RateLimitedError extends Error {}
 
+/** Models that accept output_config.effort (Opus 4.5+, Sonnet 4.6+/5, Fable). Haiku 4.5 does not. */
+export function supportsEffort(model: string): boolean {
+  return /^claude-(opus-(4-[5-9]|5)|sonnet-(4-6|5)|fable)/.test(model);
+}
+
 // ---------- Anthropic ----------
 
 export class AnthropicProvider implements Provider {
@@ -62,7 +67,10 @@ export class AnthropicProvider implements Provider {
             system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
             tools: toolParams,
             tool_choice: { type: "auto" },
-            output_config: { effort: effort ?? "high" },
+            // effort is rejected by Haiku 4.5 and older models
+            ...(supportsEffort(model) ? { output_config: { effort: effort ?? "high" } } : {}),
+            // cache the conversation as it grows, so each tool turn re-reads it at the cached price
+            cache_control: { type: "ephemeral" },
             messages,
           } as Anthropic.MessageStreamParams).finalMessage();
         } catch (e) {
