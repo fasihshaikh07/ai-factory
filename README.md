@@ -21,7 +21,7 @@ factory start "Return 404 instead of 500 when an order ID doesn't exist" --proje
 - [How it works](#how-it-works)
 - [What's built / what isn't](#whats-built--whats-not)
 - [Requirements](#requirements)
-- [Installation](#installation)
+- [Installation](#installation) · [Why Ubuntu on Windows?](#why-ubuntu-wsl-on-windows)
 - [Add a project](#add-a-project)
 - [Your first run](#your-first-run)
 - [Command reference](#command-reference)
@@ -152,6 +152,14 @@ wsl -d Ubuntu -- code ~/ai-factory
 ```
 
 The VS Code terminal is already Ubuntu; run all `factory` commands there.
+
+#### Why Ubuntu (WSL) on Windows?
+
+- **Sealed rooms.** The factory runs code nobody has reviewed yet: the AI's code and the repo's own build and test scripts. It runs them in throwaway containers with no internet and no access to your files, so they can't read your keys, touch your machine or fake test results. That's what makes a "pass" trustworthy.
+- **They're Linux containers.** The official .NET SDK and Postgres images and the coding agent are Linux-based, and the network lockdown is a Linux container feature. Macs run the same containers, so everyone gets one design.
+- **Windows always needs a Linux VM for them.** The only other option is Docker Desktop, which needs a paid licence at our company size and runs the same hidden Linux VM (WSL) underneath. Using Ubuntu directly is free and faster.
+- **Day to day you barely see it.** The installer sets it up. Open the project with `wsl -d Ubuntu -- code ~/ai-factory`; VS Code's terminal is already Ubuntu. Run git there, not from Windows.
+- **Why not skip containers?** Then the AI and the repo's code would run with your permissions, with access to your keys, network and local databases, and test results could be faked. Not acceptable for client code.
 
 ### Ubuntu / Linux
 
