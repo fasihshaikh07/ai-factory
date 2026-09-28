@@ -17,6 +17,8 @@ function worktree(): string {
   const files: Record<string, string> = {
     ".git": "gitdir: /somewhere", "CLAUDE.md": "secret instructions", "src/Api/AGENTS.md": "x",
     ".claude/settings.json": "{}", "src/A.cs": "class A {}", ".mcp.json": "{}",
+    "src/appsettings.Development.json": '{"ConnectionStrings":{"Db":"Password=real"}}', "src/appsettings.json": "{}",
+    "web/package.json": "{}", "web/src/app.ts": "x",
   };
   for (const [p, c] of Object.entries(files)) {
     mkdirSync(join(wt, p, ".."), { recursive: true });
@@ -63,7 +65,7 @@ describe("ClaudeAgentRunner (fake runtime)", () => {
     expect(s.env.ANTHROPIC_BASE_URL).toBe(API_BASE_URL);
     expect(JSON.stringify(s)).not.toContain("sk-ant-should-never-appear");
     const masked = s.mounts.filter((m) => m.ro).map((m) => m.dst).sort();
-    expect(masked).toEqual(["/job/in.json", "/work/.claude", "/work/.git", "/work/.mcp.json", "/work/CLAUDE.md", "/work/src/Api/AGENTS.md"]);
+    expect(masked).toEqual(["/job/in.json", "/work/.claude", "/work/.git", "/work/.mcp.json", "/work/CLAUDE.md", "/work/src/Api/AGENTS.md", "/work/src/appsettings.Development.json"]);
     expect(rt.removed).toBe(true);
     delete process.env.ANTHROPIC_API_KEY;
   });
@@ -82,10 +84,11 @@ describe("ClaudeAgentRunner (fake runtime)", () => {
     expect(r.status).toBe("error");
   });
 
-  it("lists masks", () => {
-    const m = agentFileMasks(worktree());
+  it("lists masks: agent files, tracked secret files, no-go folders", () => {
+    const m = agentFileMasks(worktree(), ["web/**"]);
     expect(m.files.sort()).toEqual([".mcp.json", "CLAUDE.md", "src/Api/AGENTS.md"]);
-    expect(m.dirs).toEqual([".claude"]);
+    expect(m.dirs.sort()).toEqual([".claude", "web"]);
+    expect(m.secrets).toEqual(["src/appsettings.Development.json"]);
   });
 });
 

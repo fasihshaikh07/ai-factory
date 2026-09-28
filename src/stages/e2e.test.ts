@@ -26,7 +26,7 @@ public class Greeter
 }
 `;
 const AC_ID = "Api.Tests::Api.Tests.GreetTests.AC_1_1_GreetsWithHello";
-const CHAR_ID = "Api.Tests::Api.Tests.ExistingTests.Works";
+const CHAR_ID = "Api.Tests::Api.Tests.ExistingTests.CHAR_Works";
 
 function makeRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "factory-e2e-repo-"));
@@ -97,7 +97,7 @@ class Lab implements ContainerRuntime {
       const out = mount("/job/out")!;
       if (job.fileScope.includes("tests/**")) {
         writeFileSync(join(work, "tests/Api.Tests/GreetTests.cs"), "namespace Api.Tests; public class GreetTests { /* AC-1.1 */ }\n");
-        writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { tests: [{ acId: "AC-1.1", file: "tests/Api.Tests/GreetTests.cs", name: "AC_1_1_GreetsWithHello", testId: AC_ID }], characterisation: [{ target: "Greeter", file: "tests/Api.Tests/ExistingTests.cs", testId: CHAR_ID }], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 5000, output_tokens: 800 }, costUsd: 0.05, turns: 6 }));
+        writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { tests: [{ acId: "AC-1.1", file: "tests/Api.Tests/GreetTests.cs", name: "AC_1_1_GreetsWithHello" }], characterisation: [{ target: "Greeter", file: "tests/Api.Tests/ExistingTests.cs", name: "CHAR_Works" }], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 5000, output_tokens: 800 }, costUsd: 0.05, turns: 6 }));
       } else {
         if (this.crashOnImplement) { this.crashOnImplement = false; throw new Error("simulated crash"); }
         writeFileSync(join(work, "src/Api/Greeter.cs"), GREETER.replace('"Hi "', '"Hello "'));
@@ -107,14 +107,14 @@ class Lab implements ContainerRuntime {
     }
     if (s.cmd[1] === "test") {
       const src = mount("/src")!;
-      const results = [{ name: "Works", outcome: "Passed" }];
+      const results = [{ name: "CHAR_Works", outcome: "Passed" }];
       let code = 0;
       if (existsSync(join(src, "tests/Api.Tests/GreetTests.cs"))) {
         const done = readFileSync(join(src, "src/Api/Greeter.cs"), "utf8").includes('"Hello "');
         results.push(done ? { name: "AC_1_1_GreetsWithHello", outcome: "Passed" } : { name: "AC_1_1_GreetsWithHello", outcome: "Failed", message: "Assert.Equal() Failure: Expected Hello Ann, Actual Hi Ann" } as never);
         if (!done) code = 1;
       }
-      const withCls = results.map((r) => ({ ...r, cls: r.name === "Works" ? "ExistingTests" : "GreetTests" }));
+      const withCls = results.map((r) => ({ ...r, cls: r.name === "CHAR_Works" ? "ExistingTests" : "GreetTests" }));
       writeFileSync(join(mount("/results")!, "r_Api.Tests.trx"), trx(withCls, "Api.Tests", "Api.Tests"));
       return code;
     }

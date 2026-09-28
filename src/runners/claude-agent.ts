@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { toJsonSchema } from "../contracts/index.js";
-import { AGENT_FILE_GLOBS, CONFIG_INTEGRITY_GLOBS, LOCK_SET_GLOBS } from "../gates/protected.js";
+import { AGENT_FILE_GLOBS, CONFIG_INTEGRITY_GLOBS, isSecretPath, LOCK_SET_GLOBS } from "../gates/protected.js";
 import { listFiles } from "../context/snapshot.js";
 import { matchesAny } from "../util/glob.js";
 import { factoryHome } from "../util/paths.js";
@@ -28,6 +28,8 @@ export interface AgentJobExtras {
   /** per-run restored NuGet folder, mounted read-only */
   packagesDir?: string;
   agentEnv: Record<string, string>;
+  /** project no-go globs: hidden from the agent (folder globs "dir/**" become empty folders) */
+  noGo?: string[];
   onContainer?: (id: string) => Promise<void>;
   onRemoved?: (id: string) => Promise<void>;
 }
@@ -44,10 +46,22 @@ export interface AgentOut {
   sessionId?: string;
 }
 
-/** Masks: empty read-only files/dirs over agent instruction files at any depth. */
-export function agentFileMasks(worktree: string): { files: string[]; dirs: string[] } {
-  const files: string[] = [], dirs = new Set<string>();
+/**
+ * Masks for container A, all read-only:
+ *  - agent instruction files at any depth (context-builder §2.9) → empty
+ *  - tracked secret files (.env*, appsettings.*.json, keys…) → "{}" for JSON, empty otherwise (§2.6)
+ *  - no-go folders from the project config → empty folder
+ */
+export function agentFileMasks(worktree: string, noGo: string[] = []): { files: string[]; dirs: string[]; secrets: string[] } {
+  const files: string[] = [], dirs = new Set<string>(), secrets: string[] = [];
+  for (const g of noGo) {
+    const m = /^([^*?{]+?)\/\*\*$/.exec(g);
+    if (m && existsSync(join(worktree, m[1]!))) dirs.add(m[1]!);
+  }
+  const hidden = [...dirs];
   for (const f of listFiles(worktree)) {
+    if (hidden.some((d) => f.startsWith(`${d}/`))) continue;
+    if (isSecretPath(f, noGo)) { secrets.push(f); continue; }
     if (!matchesAny(f, AGENT_FILE_GLOBS)) continue;
     const parts = f.split("/");
     const i = parts.findIndex((p) => /^\.(claude|codex|cursor)$/.test(p));
@@ -55,7 +69,7 @@ export function agentFileMasks(worktree: string): { files: string[]; dirs: strin
     else if (f === ".github/instructions" || f.startsWith(".github/instructions/")) dirs.add(".github/instructions");
     else files.push(f);
   }
-  return { files, dirs: [...dirs] };
+  return { files, dirs: [...dirs], secrets };
 }
 
 export class ClaudeAgentRunner implements Runner {
@@ -96,8 +110,11 @@ export class ClaudeAgentRunner implements Runner {
         ? { src: emptyDir, dst: "/work/.git", ro: true }
         : { src: emptyFile, dst: "/work/.git", ro: true });
     }
-    const masks = agentFileMasks(job.workdir);
+    const masks = agentFileMasks(job.workdir, x.noGo ?? []);
+    const emptyJson = join(jobDir, "empty.json");
+    writeFileSync(emptyJson, "{}\n");
     for (const f of masks.files) mounts.push({ src: emptyFile, dst: `/work/${f}`, ro: true });
+    for (const f of masks.secrets) mounts.push({ src: f.endsWith(".json") ? emptyJson : emptyFile, dst: `/work/${f}`, ro: true });
     for (const d of masks.dirs) mounts.push({ src: emptyDir, dst: `/work/${d}`, ro: true });
     if (x.packagesDir) mounts.push({ src: x.packagesDir, dst: "/nuget", ro: true });
 

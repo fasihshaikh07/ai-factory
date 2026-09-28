@@ -59,7 +59,7 @@ Report only real problems you can point to in the diff: file, line (in the new f
 };
 
 // ---------- deliver ----------
-function prBody(ctx: StepContext, a: { spec: Spec; plan: Plan; lock: { tests: { acId: string; testId: string }[] }; run: TestRun; review: { findings: { id: string; severity: string; text: string }[]; note?: string }; manifestHash: string; commits: string[] }): string {
+function prBody(ctx: StepContext, a: { spec: Spec; plan: Plan; lock: { tests: { acId: string; testId: string }[]; familyNote?: string }; run: TestRun; review: { findings: { id: string; severity: string; text: string }[]; note?: string }; manifestHash: string; commits: string[] }): string {
   const flaky = a.run.results.filter((r) => r.flaky).map((r) => r.id);
   return [
     `## What was asked`,
@@ -74,6 +74,7 @@ function prBody(ctx: StepContext, a: { spec: Spec; plan: Plan; lock: { tests: { 
     `## Checks the factory ran itself`,
     `- ${a.run.results.length} tests in a sealed container; ${a.run.results.filter((r) => r.outcome === "passed").length} passed; no new failures vs the base branch`,
     `- Acceptance tests were written first, failed on the old code twice, then locked`,
+    ...(a.lock.familyNote ? [`- ⚠ ${a.lock.familyNote}`] : []),
     ...(flaky.length ? [`- ⚠ Flaky (passed only on re-run): ${flaky.join(", ")}`] : []),
     `- Review: ${a.review.findings.length} non-blocking findings${a.review.note ? ` (${a.review.note})` : ""}`,
     ...a.review.findings.map((f) => `  - ${f.id} [${f.severity}] ${f.text}`),
@@ -133,7 +134,7 @@ export const deliverStep: StepDef = {
 
     // evidence manifest from the ledger
     const artifacts = [...ctx.state.steps.values()].filter((r) => r.status === "completed").flatMap((r) => r.outputs.map((sha) => ({ kind: "blob" as const, path: r.step, sha })));
-    const lock = requireOutput<{ tests: { acId: string; testId: string }[]; lock: { file: string; sha: string }[] }>(ctx.state, ctx.ledger, "author-tests");
+    const lock = requireOutput<{ tests: { acId: string; testId: string }[]; lock: { file: string; sha: string }[]; familyNote?: string }>(ctx.state, ctx.ledger, "author-tests");
     const manifest: EvidenceManifest = {
       header: header(ctx.runId, "evidence-manifest", "deliver", hashJson(artifacts)) as EvidenceManifest["header"],
       artifacts, locks: lock.lock,

@@ -84,3 +84,16 @@ describe("audit fixes: model-less steps", () => {
     expect([...availableRungs(p, "implement", false)]).toEqual(["retry", "raise-effort", "stronger-model"]);
   });
 });
+
+describe("audit fixes: test IDs are looked up, not guessed", () => {
+  it("maps method names to the real IDs, theory rows included", async () => {
+    const { resolveTestIds } = await import("./build.js");
+    const ids = ["Shop.Tests::Shop.Tests.Orders.AC_1_1_Returns404", "Shop.Tests::Shop.Tests.Orders.AC_1_2_Validates(qty: 0)", "Shop.Tests::Shop.Tests.Orders.AC_1_2_Validates(qty: -1)", "Shop.Tests::Shop.Tests.Old.CHAR_Totals"];
+    const r = resolveTestIds(["AC_1_1_Returns404", "AC_1_2_Validates", "CHAR_Totals", "AC_2_1_Missing"], ids);
+    expect(r.ids["AC_1_2_Validates"]).toHaveLength(2);
+    expect(r.ids["CHAR_Totals"]).toEqual(["Shop.Tests::Shop.Tests.Old.CHAR_Totals"]);
+    expect(r.missing).toEqual(["AC_2_1_Missing"]);
+    // a prefix of another name doesn't count
+    expect(resolveTestIds(["AC_1_1_Returns"], ids).missing).toEqual(["AC_1_1_Returns"]);
+  });
+});

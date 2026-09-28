@@ -31,6 +31,8 @@ export interface ProduceInput {
   onlyTests?: string[];
   /** Per-run package folder, kept between producer runs (restore is the slow part). */
   packagesDir?: string;
+  /** A raw `dotnet test --filter` expression (used to find tests by method name). */
+  filterExpr?: string;
 }
 
 export interface ProduceOutput {
@@ -196,7 +198,7 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
       return { code: code ?? 124, log, reports };
     };
 
-    const filter = inp.onlyTests?.length ? filterFor(inp.onlyTests) : undefined;
+    const filter = inp.filterExpr ?? (inp.onlyTests?.length ? filterFor(inp.onlyTests) : undefined);
     const first = await runTests(filter, resTest);
     logs.test = first.log;
     let results = first.reports.flatMap((r) => r.results);

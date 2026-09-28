@@ -24,6 +24,7 @@ import { produceDotnetTests, type ProduceOutput } from "../verify/dotnet.js";
 import type { Expectations } from "../verify/validate.js";
 import { header, requireOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
 import { modelFor } from "./routing.js";
+import { family } from "../runners/types.js";
 import { S } from "./think.js";
 import { ensureWorktree, runtime, snapshotFor } from "./workspace.js";
 
@@ -38,11 +39,11 @@ const packagesDir = (runId: string) => {
   return d;
 };
 
-async function produce(ctx: StepContext, key: string, commit: string, stage: TestRun["stage"], exp: Expectations, onlyTests?: string[]): Promise<ProduceOutput> {
+async function produce(ctx: StepContext, key: string, commit: string, stage: TestRun["stage"], exp: Expectations, onlyTests?: string[], filterExpr?: string): Promise<ProduceOutput> {
   const rt = runtime();
   await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
   return produceDotnetTests({
-    runId: ctx.runId, key, repo: ctx.state.info.repoPath!, commit, stage, exp, project: ctx.project, rt, onlyTests,
+    runId: ctx.runId, key, repo: ctx.state.info.repoPath!, commit, stage, exp, project: ctx.project, rt, onlyTests, filterExpr,
     packagesDir: packagesDir(ctx.runId),
     onContainer: async (id, role) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role } }, ctx.writer); },
     onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
@@ -118,10 +119,26 @@ export const stubCommitStep: StepDef = {
 
 // ---------- author-tests (A) + fails on base twice + lock ----------
 const AuthorOut = z.object({
-  tests: z.array(z.object({ acId: z.string(), file: z.string(), name: z.string(), testId: z.string() })).min(1),
-  characterisation: z.array(z.object({ target: z.string(), file: z.string(), testId: z.string() })),
+  tests: z.array(z.object({ acId: z.string(), file: z.string(), name: z.string().regex(/^AC_\d+_\d+_\w+$/, "method name must be AC_<req>_<n>_<Words>") })).min(1),
+  characterisation: z.array(z.object({ target: z.string(), file: z.string(), name: z.string().regex(/^CHAR_\w+$/, "method name must be CHAR_<Words>") })),
   notes: z.string(),
 });
+
+/**
+ * The test author gives method names; the factory finds the real test IDs from a run
+ * (project::Namespace.Class.Method(args)), so nobody has to guess the ID format.
+ * A theory can have several rows: all of them count.
+ */
+export function resolveTestIds(names: string[], resultIds: string[]): { ids: Record<string, string[]>; missing: string[] } {
+  const ids: Record<string, string[]> = {};
+  const missing: string[] = [];
+  for (const n of names) {
+    const hits = resultIds.filter((id) => id.replace(/\(.*$/, "").endsWith(`.${n}`));
+    if (hits.length) ids[n] = hits;
+    else missing.push(n);
+  }
+  return { ids, missing };
+}
 
 const TEST_SCOPE = ["**/*Test*/**", "**/*test*/**", "tests/**", "test/**"];
 
@@ -147,22 +164,22 @@ export const authorTestsStep: StepDef = {
 Rules:
 - Put tests in the existing test project that best fits (look for *Tests.csproj). Follow the style of existing tests there (xUnit, WebApplicationFactory if used).
 - Test through public surfaces only: HTTP endpoints, public service methods, database rows. Don't test private code.
-- Name each test after its AC, e.g. AC_1_2_Returns404WhenOrderMissing.
+- Name each acceptance test method exactly AC_<req>_<n>_<Words> for acceptance criterion AC-<req>.<n>, e.g. AC_1_2_Returns404WhenOrderMissing. Name characterisation test methods CHAR_<Words>. The factory finds tests by these names.
 - New APIs exist as stubs that throw NotImplementedException; tests must compile against them and fail for now.
 - Also write characterisation tests for existing behaviour next to the change that must NOT change; those must pass today.
 - Don't change production code. Don't change test project files unless a package reference is missing and already restored.
 - You may run "dotnet build" to check the tests compile. There's no database in this container; don't try to make tests pass.
-- testId format: <TestProjectName>::<Namespace>.<Class>.<Method>
-Return the list of tests you wrote.`),
+Return the list of tests you wrote (acId, file, method name).`),
         S.artifact("acs", "acceptance-criteria", acs),
         S.artifact("stubs", "stubs", plan.stubs.map((s) => ({ path: s.path, content: s.content }))),
-        S.task("Write the acceptance and characterisation tests now."),
+        ...(ctx.priorFailures.length ? [{ spec: { id: "failures", source: "feedback" as const, trust: "derived" as const, placement: "user" as const }, content: "Your previous attempt was rejected:\n" + ctx.priorFailures.slice(0, 20).map((f) => `- [${f.check}] ${f.message}`).join("\n") }] : []),
+        S.task(`Write the acceptance and characterisation tests now.${ctx.priorFailures.length ? " The previous attempt failed for the reasons above; fix them." : ""}`),
         S.recap(["one test per AC", "tests fail now for the right reason", "characterisation tests pass today", "don't touch production code"]),
       ],
     });
     const r = await new ClaudeAgentRunner(rt, {
       runId: ctx.runId, key: `author-tests/${ctx.attempt}`, fileScope: TEST_SCOPE, lockedFiles: [], extraProtected: [],
-      protectedGlobs: CONFIG_INTEGRITY_GLOBS, packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv,
+      protectedGlobs: CONFIG_INTEGRITY_GLOBS, packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv, noGo: ctx.project.noGo,
       onContainer: async (id) => { await ctx.ledger.append({ type: "container.started", key: "author-tests", data: { id, role: "agent" } }, ctx.writer); },
       onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key: "author-tests", data: { id } }, ctx.writer); },
     }).run({ step: "author-tests", model, effort, pack, schema: AuthorOut, limits: { maxTurns: 60, maxUsd: 4, timeoutSec: 45 * 60 }, workdir: wt });
@@ -177,26 +194,47 @@ Return the list of tests you wrote.`),
     const missingAc = acs.filter((a) => a.level !== "manual" && !out.tests.some((t) => t.acId === a.id));
     if (missingAc.length) return { kind: "fail", category: "other", failures: missingAc.map((a) => failure("ac-coverage", `No test for ${a.id}`)), signature: "author-tests:coverage" };
 
+    // find the real test IDs by method name (one quick run, no expectations)
+    const names = [...out.tests.map((t) => t.name), ...out.characterisation.map((c) => c.name)];
+    ctx.log("author-tests: finding the new tests");
+    const found = await produce(ctx, "author-tests/find", commit, "author-tests-on-base", { expectPass: [], expectFail: [], compareToBaseline: [] }, undefined,
+      names.map((n) => `FullyQualifiedName~.${n}`).join("|"));
+    const { ids, missing } = resolveTestIds(names, found.testRun.results.map((r) => r.id));
+    if (!found.build.ok || missing.length) {
+      await resetHard(wt, start);
+      const why = !found.build.ok
+        ? found.build.errors.slice(0, 10).map((e) => failure("tests-compile", `${e.file}:${e.line} ${e.code} ${e.msg}`))
+        : missing.map((n) => failure("test-not-found", `No test method named ${n} ran. Is it public, in a test project, and marked [Fact]/[Theory]?`));
+      return { kind: "fail", category: "other", failures: why, signature: `author-tests:${!found.build.ok ? "compile" : "not-found"}` };
+    }
+    const tests = out.tests.flatMap((t) => ids[t.name]!.map((testId) => ({ ...t, testId, failsOnBase: true })));
+    const characterisation = out.characterisation.flatMap((c) => ids[c.name]!.map((testId) => ({ ...c, testId, passesOnBase: true })));
     const exp: Expectations = {
-      expectPass: out.characterisation.map((c) => c.testId),
-      expectFail: out.tests.map((t) => ({ id: t.testId, kinds: ["assertion", "not-implemented"] })),
+      expectPass: characterisation.map((c) => c.testId),
+      expectFail: tests.map((t) => ({ id: t.testId, kinds: ["assertion", "not-implemented"] })),
       compareToBaseline: [],
     };
-    const only = [...out.tests.map((t) => t.testId), ...out.characterisation.map((c) => c.testId)];
+    const only = [...tests.map((t) => t.testId), ...characterisation.map((c) => c.testId)];
     ctx.log("author-tests: running the new tests on the old code, twice");
     const run1 = storeRun(ctx, await produce(ctx, "author-tests/base-1", commit, "author-tests-on-base", exp, only));
     const run2 = storeRun(ctx, await produce(ctx, "author-tests/base-2", commit, "author-tests-on-base", exp, only));
     const lock: Lock = {
-      tests: out.tests, characterisation: out.characterisation,
+      tests, characterisation,
       lock: changed.filter((c) => c.status !== "D").map((c) => ({ file: c.path, sha: sha256(readFileSync(join(wt, c.path))) })),
     };
-    const lockSha = ctx.ledger.putJson({ ...lock, unlocks: [], header: header(ctx.runId, "acceptance-tests", "author-tests", "", model) });
+    // design allows one family until a second vendor's coding runner exists; say so in the evidence
+    const implementer = modelFor(ctx.project, "implement", 0).model;
+    const families = { testAuthor: family(model), implementer: family(implementer) };
+    const familyNote = families.testAuthor === families.implementer
+      ? `Single model family: tests written by ${model}, code by ${implementer} (both ${families.testAuthor}). A second-vendor coding runner isn't built yet.`
+      : undefined;
+    const lockSha = ctx.ledger.putJson({ ...lock, unlocks: [], families, familyNote, header: header(ctx.runId, "acceptance-tests", "author-tests", "", model) });
     const g = await runGate(failsOnBase, ctx.ledger, ctx.writer, { run1: run1.testRun, run2: run2.testRun, tests: lockSha }, ctx.policy, { step: "author-tests", treeSha: commit });
     if (!g.passed) {
       await resetHard(wt, start);
       return { kind: "fail", category: "other", failures: g.failures ?? [], signature: failureSignature((g.failures ?? []).map((f) => f.message)) };
     }
-    return { kind: "done", outputs: { tests: lockSha, run1: run1.testRun, run2: run2.testRun }, treeSha: commit, data: { commit, locked: lock.lock.length } };
+    return { kind: "done", outputs: { tests: lockSha, run1: run1.testRun, run2: run2.testRun }, treeSha: commit, data: { commit, locked: lock.lock.length, familyNote } };
   },
 };
 
@@ -300,7 +338,7 @@ export function implementStep(taskId: string): StepDef {
       });
       const r = await new ClaudeAgentRunner(rt, {
         runId: ctx.runId, key: `${key}/${ctx.attempt}`, fileScope: task.fileScope, lockedFiles: lock.lock.map((l) => l.file),
-        extraProtected: [], packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv,
+        extraProtected: [], packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv, noGo: ctx.project.noGo,
         onContainer: async (id) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role: "agent" } }, ctx.writer); },
         onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
       }).run({ step: "implement", model, effort, pack, schema: ImplementOut, limits: { maxTurns: 80, maxUsd: 4, timeoutSec: 45 * 60 }, workdir: wt });
@@ -312,21 +350,26 @@ export function implementStep(taskId: string): StepDef {
       const diff = await diffSummary(wt, start, commit, lock);
       const diffSha = ctx.ledger.putJson(diff);
       const baseline = ctx.ledger.getJson<TestRun>(baselineSha);
+      const failed = (g: NonNullable<Awaited<ReturnType<typeof gateAll>>>) =>
+        ({ kind: "fail" as const, category: g.category, failures: g.failures.slice(0, 20), signature: failureSignature(g.failures.map((f) => `${f.check}:${f.testId ?? f.message}`)), diffSha: sha256(JSON.stringify(diff.files)), lockedFailedIds: g.lockedFailedIds });
+      // 1. the diff checks first: a change that touches locked tests, protected files or secrets never gets run
+      const diffGated = await gateAll(ctx, key, commit, [
+        [lockSetUnchanged, { diff: diffSha, tests: ctx.state.steps.get("author-tests")!.outputs[0]! }],
+        [configIntegrity, { diff: diffSha, plan: ctx.state.steps.get("plan")!.outputs[0]! }],
+        [noSecrets, { scan: ctx.ledger.putJson(secretScanOf(diff, commit)) }],
+        [diffInScope, { diff: diffSha, task: ctx.ledger.putJson({ fileScope: task.fileScope }) }],
+        [noEscapeHatches, { diff: diffSha }],
+      ]);
+      if (diffGated) return failed(diffGated);
+      // 2. only then build and run the tests on that exact commit
       const produced = await produce(ctx, `${key}/${ctx.attempt}`, commit, "task", {
         expectPass: myTests.map((t) => t.testId), expectFail: [], compareToBaseline: baseline.results.map((b) => b.id),
       });
       const run = storeRun(ctx, produced);
-      const gated = await gateAll(ctx, key, commit, [
-        [diffInScope, { diff: diffSha, task: ctx.ledger.putJson({ fileScope: task.fileScope }) }],
-        [lockSetUnchanged, { diff: diffSha, tests: ctx.state.steps.get("author-tests")!.outputs[0]! }],
-        [configIntegrity, { diff: diffSha, plan: ctx.state.steps.get("plan")!.outputs[0]! }],
-        [noEscapeHatches, { diff: diffSha }],
-        [noSecrets, { scan: ctx.ledger.putJson(secretScanOf(diff, commit)) }],
-        [testExpectations, { run: run.testRun, baseline: baselineSha }],
-      ]);
+      const gated = await gateAll(ctx, key, commit, [[testExpectations, { run: run.testRun, baseline: baselineSha }]]);
       if (gated) {
         if (!produced.build.ok) gated.failures.unshift(...produced.build.errors.slice(0, 10).map((e) => failure("build", `${e.file}:${e.line} ${e.code} ${e.msg}`)));
-        return { kind: "fail", category: gated.category, failures: gated.failures.slice(0, 20), signature: failureSignature(gated.failures.map((f) => `${f.check}:${f.testId ?? f.message}`)), diffSha: sha256(JSON.stringify(diff.files)), lockedFailedIds: gated.lockedFailedIds };
+        return failed(gated);
       }
       return { kind: "done", outputs: { diff: diffSha, testRun: run.testRun }, treeSha: commit, data: { commit } };
     },
