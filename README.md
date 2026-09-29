@@ -261,7 +261,7 @@ Tests that already fail are fine: they're remembered, and a run is only blamed f
 | Field | Meaning |
 |---|---|
 | `repo`, `baseBranch` | The local clone and the branch runs start from. |
-| `dotnet.sdkImage` / `solution` | Build image and solution file. |
+| `dotnet.sdkImage` / `solution` | Build image and the solution (or project) that restore, build and test use. Optional: when the repo root has no `.sln` or `.csproj`, the factory uses the shallowest solution below it, else the only project (e.g. `backend/Api/Api.csproj`). Set it when there are several. |
 | `database.name` / `user` / `passwordEnv` | The test database, and the login your tests hardcode (created without superuser). The password lives in `~/.factory/.env`. |
 | `producerEnv` | Environment for the **test** container only. `{{DB_*}}` are filled in by the factory. |
 | `agentEnv` | Dummy environment for the **coding** container, so the app compiles. Never real secrets. |
@@ -391,7 +391,8 @@ factory show-card <run> --pr       # paste this as the PR description
 ### What the repo needs (POC)
 
 - .NET on Linux: .NET 6+ (not .NET Framework, WPF or WinForms).
-- Tests run with `dotnet test`.
+- Tests run with `dotnet test`, from a test project (xUnit, NUnit or MSTest). A repo with no test project builds, but its baseline has 0 tests and `valid=false`.
+- A solution or project the factory can find: at the repo root, a single one below it, or named in `dotnet.solution`.
 - Postgres, or no database. The factory starts a throwaway Postgres for the tests.
 - **Refused for now:** SQL Server; tests that start their own containers (Testcontainers).
 - **Not provided yet:** other services the tests need (Redis, queues…), private NuGet feeds.
@@ -476,6 +477,9 @@ By design it **can't answer questions or approve plans**. Those always happen in
 | `Path … is on a Windows drive` | Use `factory init <path>`; it copies the repo into Ubuntu for you. |
 | `X is missing in ~/.factory/.env` | Add that variable to `~/.factory/.env`. |
 | `The untouched repo doesn't build in the test lab` | Check `dotnet.sdkImage` matches the repo's framework; check private NuGet feeds (not supported yet). |
+| `baseline`: `MSB1003: Specify a project or solution file` | The factory couldn't find what to build. Set `dotnet.solution` in the project config to the `.sln` or `.csproj` path (relative to the repo root). |
+| `baseline`: `Several solutions…` / `No solution file and several projects…` | Set `dotnet.solution`, or add a `.sln` at the repo root that includes the projects (`dotnet new sln` + `dotnet sln add …`). |
+| `baseline`: `0 tests … valid=false` | The build worked but the repo has no test project. Add one (`dotnet new xunit`) and include it in the solution. The "verifying workloads" line in the log is a harmless SDK warning. |
 | Many tests fail in `baseline` | Check whether they fail on your machine too. If yes, they're pre-existing and remembered. If not, compare DB settings (`database:`) and seed data. |
 | `Repo is busy: run … is executing` | Only one run executes per repo at a time. Wait, or `factory stop` the other run. |
 | A run is `parked` | `factory status <run>` shows why; fix it and `factory resume <run>`. |
