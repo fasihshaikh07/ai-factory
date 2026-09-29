@@ -8,6 +8,8 @@ import { hasSecret } from "../config/env.js";
 import { loadProject, projectPath } from "../config/project.js";
 import { verifyEvidence } from "../gates/engine.js";
 import "../gates/predicates.js";
+import "../design/gates.js";
+import { registerDesignCommands } from "../design/cli.js";
 import { assertTty, decide, DecisionError } from "../ledger/human.js";
 import { HUMAN_WRITER, Ledger } from "../ledger/ledger.js";
 import { replay, statusLabel } from "../ledger/state.js";
@@ -374,6 +376,9 @@ program.command("doctor").description("check this machine and the setup").action
   const projects = existsSync(join(factoryHome(), "projects")) ? readdirSync(join(factoryHome(), "projects")).filter((f) => f.endsWith(".yaml")) : [];
   ok(projects.length > 0, `projects: ${projects.join(", ").replace(/\.yaml/g, "") || "none"}`, "add one with: factory init <path-to-repo-or-git-url>");
 });
+
+// design toolkit (src/design): factory design inventory|size|lint|brief
+registerDesignCommands(program);
 
 program.parseAsync().catch((e: Error) => {
   if (e instanceof DecisionError) process.stderr.write(`${e.message}\n`);
