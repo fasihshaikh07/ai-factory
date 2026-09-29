@@ -1,11 +1,9 @@
 // MCP front end (run-manager §2.8): Claude Code (or any MCP client) can start runs and read
 // status and cards. It can NEVER answer, approve, reject, waive or unlock: those are TTY-only,
 // so a prompt-injected agent can't approve its own plan.
-import { spawn } from "node:child_process";
-import { existsSync, openSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -13,6 +11,7 @@ import { verifyEvidence } from "../gates/engine.js";
 import "../gates/predicates.js";
 import { Ledger } from "../ledger/ledger.js";
 import { replay, statusLabel } from "../ledger/state.js";
+import { runDetached } from "../stages/background.js";
 import { createRun } from "../stages/executor.js";
 import { factoryHome } from "../util/paths.js";
 
@@ -32,14 +31,6 @@ function summary(id: string): string {
   return `${id}: ${statusLabel(s.status)}, step ${current}, cost $${s.costUsd.toFixed(2)}`
     + (s.openCard ? `, waiting on a ${s.openCard.kind} card (the user decides in their terminal)` : "")
     + (s.parkedReason ? `, parked: ${s.parkedReason}` : "");
-}
-
-/** Execute a run in the background; output goes to the run's executor.log. */
-function runDetached(runId: string): void {
-  const cli = fileURLToPath(new URL("../cli/index.js", import.meta.url));
-  const log = openSync(join(factoryHome(), "ledger", runId, "executor.log"), "a");
-  const child = spawn(process.execPath, [cli, "resume", runId], { detached: true, stdio: ["ignore", log, log] });
-  child.unref();
 }
 
 export async function startMcpServer(): Promise<void> {
