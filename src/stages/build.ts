@@ -20,7 +20,7 @@ import { buildPack } from "../context/pack.js";
 import { Redactor } from "../context/secrets.js";
 import { sha256 } from "../util/hash.js";
 import { factoryHome } from "../util/paths.js";
-import { produceDotnetTests, type ProduceOutput } from "../verify/dotnet.js";
+import { produceDotnetTests, type Probe, type ProduceOutput } from "../verify/dotnet.js";
 import type { Expectations } from "../verify/validate.js";
 import { header, requireOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
 import { modelFor } from "./routing.js";
@@ -31,7 +31,12 @@ import { ensureWorktree, runtime, snapshotFor } from "./workspace.js";
 type Plan = z.infer<typeof PlanBody> & { complexity: string };
 type Spec = z.infer<typeof SpecDraft>;
 
-interface Lock { tests: { acId: string; file: string; name: string; testId: string }[]; characterisation: { target: string; file: string; testId: string }[]; lock: { file: string; sha: string }[] }
+interface Lock {
+  tests: { acId: string; file: string; name: string; testId: string }[];
+  characterisation: { target: string; file: string; testId: string }[];
+  lock: { file: string; sha: string }[];
+  probes?: Probe[];
+}
 
 const packagesDir = (runId: string) => {
   const d = join(factoryHome(), "tmp", runId, "nuget");
@@ -39,11 +44,11 @@ const packagesDir = (runId: string) => {
   return d;
 };
 
-async function produce(ctx: StepContext, key: string, commit: string, stage: TestRun["stage"], exp: Expectations, onlyTests?: string[], filterExpr?: string): Promise<ProduceOutput> {
+async function produce(ctx: StepContext, key: string, commit: string, stage: TestRun["stage"], exp: Expectations, onlyTests?: string[], filterExpr?: string, accept?: { probes: Probe[] }): Promise<ProduceOutput> {
   const rt = runtime();
   await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
   return produceDotnetTests({
-    runId: ctx.runId, key, repo: ctx.state.info.repoPath!, commit, stage, exp, project: ctx.project, rt, onlyTests, filterExpr,
+    runId: ctx.runId, key, repo: ctx.state.info.repoPath!, commit, stage, exp, project: ctx.project, rt, onlyTests, filterExpr, accept,
     packagesDir: packagesDir(ctx.runId),
     onContainer: async (id, role) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role } }, ctx.writer); },
     onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
@@ -138,6 +143,11 @@ export const stubCommitStep: StepDef = {
 const AuthorOut = z.object({
   tests: z.array(z.object({ acId: z.string(), file: z.string(), name: z.string().regex(/^AC_\d+_\d+_\w+$/, "method name must be AC_<req>_<n>_<Words>") })).min(1),
   characterisation: z.array(z.object({ target: z.string(), file: z.string(), name: z.string().regex(/^CHAR_\w+$/, "method name must be CHAR_<Words>") })),
+  /** one HTTP request per api-level criterion, replayed against the running app at accept */
+  probes: z.array(z.object({
+    acId: z.string(), method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]), path: z.string().startsWith("/"),
+    body: z.string().optional(), expectStatus: z.number().int().min(100).max(599),
+  })).default([]),
   notes: z.string(),
 });
 
@@ -187,7 +197,8 @@ Rules:
 - Also write characterisation tests for existing behaviour next to the change that must NOT change; those must pass today.
 - Don't change production code. Don't change test project files unless a package reference is missing and already restored.
 - You may run "dotnet build" to check the tests compile. There's no database in this container; don't try to make tests pass.
-Return the list of tests you wrote (acId, file, method name).`),
+- For each "api" criterion whose endpoint needs NO login, also give one HTTP probe: method, path, optional JSON body, and the status code the criterion expects once implemented. The factory sends it to the running app (with an empty test database) as evidence. Skip criteria that need a login or seeded data.
+Return the list of tests you wrote (acId, file, method name) and the probes.`),
         S.artifact("acs", "acceptance-criteria", acs),
         S.artifact("stubs", "stubs", plan.stubs.map((s) => ({ path: s.path, content: s.content }))),
         ...(ctx.priorFailures.length ? [{ spec: { id: "failures", source: "feedback" as const, trust: "derived" as const, placement: "user" as const }, content: "Your previous attempt was rejected:\n" + ctx.priorFailures.slice(0, 20).map((f) => `- [${f.check}] ${f.message}`).join("\n") }] : []),
@@ -236,8 +247,9 @@ Return the list of tests you wrote (acId, file, method name).`),
     ctx.log("author-tests: running the new tests on the old code, twice");
     const run1 = storeRun(ctx, await produce(ctx, "author-tests/base-1", commit, "author-tests-on-base", exp, only));
     const run2 = storeRun(ctx, await produce(ctx, "author-tests/base-2", commit, "author-tests-on-base", exp, only));
+    const acIds = new Set(acs.filter((a) => a.level === "api").map((a) => a.id));
     const lock: Lock = {
-      tests, characterisation,
+      tests, characterisation, probes: out.probes.filter((p) => acIds.has(p.acId)),
       lock: changed.filter((c) => c.status !== "D").map((c) => ({ file: c.path, sha: sha256(readFileSync(join(wt, c.path))) })),
     };
     // design allows one family until a second vendor's coding runner exists; say so in the evidence
@@ -440,25 +452,48 @@ export const integrateStep: StepDef = {
   },
 };
 
-// ---------- accept (D) ----------
-// POC: evidence per AC is its locked test passing in the integrate run (kind from the AC level).
-// Booting the app and replaying HTTP/UI with recorded evidence (verify-runner §2.8) comes next.
+// ---------- accept (D, no model) ----------
+// Boot the app next to the test Postgres, send the locked HTTP probes, re-run the locked criteria tests;
+// every criterion gets evidence of its kind (verify-runner §2.8, minimal: no login/identities yet).
 export const acceptStep: StepDef = {
-  key: "accept", stage: "accept", templateVersion: "1",
-  inputs: (s) => (s.steps.get("integrate")?.status === "completed" ? { integrate: s.steps.get("integrate")!.outputs[0] } : undefined),
+  key: "accept", stage: "accept", templateVersion: "2",
+  inputs: (s) => (s.steps.get("integrate")?.status === "completed" ? { integrate: s.steps.get("integrate")!.outputs[0], head: s.steps.get("integrate")!.data?.commit } : undefined),
   async run(ctx): Promise<StepOutcome> {
     const spec = requireOutput<Spec>(ctx.state, ctx.ledger, "specify");
     const lock = requireOutput<Lock>(ctx.state, ctx.ledger, "author-tests");
-    const run = requireOutput<TestRun>(ctx.state, ctx.ledger, "integrate");
-    const passed = new Set(run.results.filter((r) => r.outcome === "passed" && !r.flaky).map((r) => r.id));
+    const head = String(ctx.state.steps.get("integrate")!.data!.commit);
+    const probes = lock.probes ?? [];
+    ctx.log(`accept: booting the app and sending ${probes.length} probe(s)`);
+    const out = await produce(ctx, "accept", head, "accept", { expectPass: lock.tests.map((t) => t.testId), expectFail: [], compareToBaseline: [] },
+      lock.tests.map((t) => t.testId), undefined, { probes });
+    const runSha = storeRun(ctx, out).testRun;
+    const acc = out.accept ?? { boot: { attempted: false, ok: false, note: "not run", logTail: "" }, probes: [] };
+    const bootLog = ctx.ledger.putArtifact(acc.boot.logTail);
+    const passed = new Set(out.testRun.results.filter((r) => r.outcome === "passed" && !r.flaky).map((r) => r.id));
     const items = spec.requirements.flatMap((r) => r.acceptance.map((a) => {
-      const t = lock.tests.find((x) => x.acId === a.id);
-      return { acId: a.id, kind: a.level === "manual" ? "manual" : a.level === "ui" ? "screenshot" : a.level === "job" ? "job" : "http", testId: t?.testId, passed: a.level === "manual" ? false : !!t && passed.has(t.testId) };
+      const tests = lock.tests.filter((t) => t.acId === a.id);
+      const http = acc.probes.filter((p) => p.acId === a.id).map((p) => ({
+        method: p.method, path: p.path, status: p.status, expectStatus: p.expectStatus,
+        requestSha: p.requestBody !== undefined ? ctx.ledger.putArtifact(p.requestBody) : undefined,
+        bodySha: ctx.ledger.putArtifact(p.responseBody),
+      }));
+      const kind = a.level === "manual" ? "manual" : a.level === "ui" ? "ui" : a.level === "job" ? "job" : "http";
+      const testsOk = tests.length > 0 && tests.every((t) => passed.has(t.testId));
+      const probesOk = http.every((h) => h.status === h.expectStatus);
+      return { ac: a.id, kind, testIds: tests.map((t) => t.testId), http, passed: kind === "manual" ? false : testsOk && probesOk };
     }));
-    const missing = items.filter((i) => i.kind !== "manual" && !i.passed);
-    if (missing.length) return { kind: "park", reason: `No passing evidence for ${missing.map((m) => m.acId).join(", ")}` };
-    const manual = items.filter((i) => i.kind === "manual");
-    const sha = ctx.ledger.putJson({ header: header(ctx.runId, "acceptance-evidence", "accept", ""), items, note: "Evidence = the locked AC test passing in the integrate run. App boot + HTTP replay not built yet.", manualPending: manual.map((m) => m.acId) });
-    return { kind: "done", outputs: { evidence: sha } };
+    const evidence = {
+      header: header(ctx.runId, "acceptance-evidence", "accept", ""), items,
+      app: { ...acc.boot, logTail: undefined, logSha: bootLog },
+      testRun: runSha,
+      limits: "Probes cover only endpoints without login (test users/tokens aren't built yet).",
+    };
+    const sha = ctx.ledger.putJson(evidence);
+    const problems = [
+      ...(acc.boot.attempted && !acc.boot.ok ? [`the app didn't start: ${acc.boot.note ?? ""}`] : []),
+      ...items.filter((i) => i.kind !== "manual" && !i.passed).map((i) => `${i.ac}: ${i.testIds.length ? "" : "no locked test; "}${i.http.filter((h) => h.status !== h.expectStatus).map((h) => `${h.method} ${h.path} answered ${h.status}, expected ${h.expectStatus}`).join("; ") || "locked test didn't pass"}`),
+    ];
+    if (problems.length) return { kind: "park", reason: `Acceptance evidence is missing: ${problems.join(" | ")}` };
+    return { kind: "done", outputs: { evidence: sha, testRun: runSha }, data: { appStarted: acc.boot.ok, probes: acc.probes.length, manualPending: items.filter((i) => i.kind === "manual").map((i) => i.ac) } };
   },
 };

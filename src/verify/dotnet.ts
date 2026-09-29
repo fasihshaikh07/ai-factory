@@ -35,6 +35,15 @@ export interface ProduceInput {
   filterExpr?: string;
   /** Only restore packages into packagesDir (for the coding container); no build or tests. */
   restoreOnly?: boolean;
+  /** Accept: boot the app in the db's namespace and send these probes before the tests run. */
+  accept?: { probes: Probe[] };
+}
+
+export interface Probe { acId: string; method: string; path: string; body?: string; expectStatus: number }
+
+export interface AcceptResult {
+  boot: { attempted: boolean; ok: boolean; project?: string; firstStatus?: number; ms?: number; note?: string; logTail: string };
+  probes: { acId: string; method: string; path: string; requestBody?: string; status: number; expectStatus: number; responseBody: string }[];
 }
 
 export interface ProduceOutput {
@@ -42,6 +51,32 @@ export interface ProduceOutput {
   build: BuildRun;
   reports: { name: string; content: string }[];
   logs: { restore: string; build: string; test: string };
+  accept?: AcceptResult;
+}
+
+/** The web project to boot: the configured one, else the first csproj using Sdk.Web. */
+export function findWebProject(src: string, configured?: string): string | undefined {
+  if (configured) return configured;
+  // the lab copy has no .git, so walk the folders
+  const found: string[] = [];
+  const walk = (dir: string, rel: string, depth: number) => {
+    if (depth > 5) return;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (["bin", "obj", "node_modules", ".git"].includes(e.name)) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(join(dir, e.name), r, depth + 1);
+      else if (e.name.endsWith(".csproj")) found.push(r);
+    }
+  };
+  walk(src, "", 0);
+  return found.sort().find((f) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(readFileSync(join(src, f), "utf8")) && !/test/i.test(f));
+}
+
+/** "body\nSTATUS" from curl -w → { body, status } */
+export function splitCurl(out: string): { body: string; status: number } {
+  const i = out.lastIndexOf("\n");
+  const status = Number((i >= 0 ? out.slice(i + 1) : out).trim());
+  return { body: i >= 0 ? out.slice(0, i) : "", status: Number.isFinite(status) ? status : 0 };
 }
 
 const BASE_ENV = {
@@ -205,6 +240,9 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
       return { code: code ?? 124, log, reports };
     };
 
+    let accept: AcceptResult | undefined;
+    if (inp.accept) accept = await bootAndProbe(inp, src, nuget, dbId, dbEnv, launch, finish);
+
     const filter = inp.filterExpr ?? (inp.onlyTests?.length ? filterFor(inp.onlyTests) : undefined);
     const first = await runTests(filter, resTest);
     logs.test = first.log;
@@ -232,11 +270,76 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
       },
       probeOk: () => probe,
     });
-    return { testRun, build, reports: first.reports.map((r) => ({ name: r.name, content: r.content })), logs };
+    return { testRun, build, reports: first.reports.map((r) => ({ name: r.name, content: r.content })), logs, accept };
   } finally {
     for (const id of live) await stopAndRemove(rt, id).catch(() => undefined);
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+/**
+ * Accept (verify-runner §2.8, minimal): run the built app in the db's loopback-only namespace, wait
+ * for any HTTP answer, send each locked probe, record request and response. The app is stopped
+ * before anything is read back.
+ */
+async function bootAndProbe(
+  inp: ProduceInput, src: string, nuget: string, dbId: string | undefined, dbEnv: Record<string, string>,
+  launch: (spec: Omit<ContainerSpec, "labels" | "user"> & { user?: string }) => Promise<string>,
+  finish: (id: string) => Promise<void>,
+): Promise<AcceptResult> {
+  const { rt, project } = inp;
+  const cfg = project.accept;
+  const none = (note: string): AcceptResult => ({ boot: { attempted: false, ok: false, note, logTail: "" }, probes: [] });
+  if (!cfg.bootApp) return none("booting the app is turned off for this project");
+  const web = findWebProject(src, cfg.project);
+  if (!web) return none("no web project found (no csproj uses Sdk.Web)");
+  const base = `http://127.0.0.1:${cfg.port}`;
+  const started = Date.now();
+  const app = await launch({
+    role: "app", image: project.dotnet.sdkImage, network: dbId ? `container:${dbId}` : "none", workdir: "/src",
+    env: { ...BASE_ENV, ...dbEnv, ASPNETCORE_ENVIRONMENT: "Development", ASPNETCORE_URLS: base, DOTNET_ENVIRONMENT: "Development", ...cfg.env },
+    mounts: [{ src, dst: "/src" }, { src: nuget, dst: "/nuget", ro: true }],
+    cmd: ["dotnet", "run", "--no-build", "--no-launch-profile", "--project", web, "--urls", base],
+  });
+  let firstStatus = 0;
+  let crashed = false;
+  const until = started + cfg.readyTimeoutSec * 1000;
+  while (Date.now() < until) {
+    if (!(await rt.isRunning(app))) { crashed = true; break; }
+    const r = await rt.exec(app, ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", `${base}${cfg.readyPath}`]);
+    firstStatus = Number(r.stdout.trim()) || 0;
+    if (firstStatus > 0) break;
+    await new Promise((res) => setTimeout(res, 1000));
+  }
+  const ms = Date.now() - started;
+  const probes: AcceptResult["probes"] = [];
+  if (firstStatus > 0) {
+    for (const p of inp.accept!.probes) {
+      const args = ["curl", "-s", "-X", p.method.toUpperCase(), "-H", "Content-Type: application/json", "-w", "\n%{http_code}"];
+      if (p.body !== undefined) args.push("--data-binary", p.body);
+      args.push(`${base}${p.path.startsWith("/") ? p.path : `/${p.path}`}`);
+      const r = splitCurl((await rt.exec(app, args)).stdout);
+      probes.push({ acId: p.acId, method: p.method.toUpperCase(), path: p.path, requestBody: p.body, status: r.status, expectStatus: p.expectStatus, responseBody: r.body.slice(0, 20_000) });
+    }
+  }
+  await rt.stop(app); // stop before reading its log
+  const logTail = (await rt.logs(app)).split("\n").slice(-60).join("\n");
+  await finish(app);
+  return {
+    boot: {
+      attempted: true, ok: firstStatus > 0, project: web, firstStatus, ms, logTail,
+      note: firstStatus > 0 ? undefined : crashed
+        ? `the app exited during startup after ${Math.round(ms / 1000)}s: ${firstError(logTail)}`
+        : `no HTTP answer on ${cfg.readyPath} within ${cfg.readyTimeoutSec}s`,
+    },
+    probes,
+  };
+}
+
+/** The first exception line of a .NET log, for the park message. */
+export function firstError(log: string): string {
+  const line = log.split("\n").find((l) => /(Exception|Error)[^a-z]*[:(]/.test(l) && !/^\s+at /.test(l));
+  return (line ?? log.split("\n").filter(Boolean).slice(-1)[0] ?? "").trim().slice(0, 300);
 }
 
 async function waitForPg(rt: ContainerRuntime, id: string, timeoutMs = 60_000): Promise<void> {

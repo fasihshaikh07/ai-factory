@@ -36,6 +36,7 @@ function makeRepo(): string {
   mkdirSync(join(dir, "tests/Api.Tests"), { recursive: true });
   writeFileSync(join(dir, "src/Api/Greeter.cs"), GREETER);
   writeFileSync(join(dir, "tests/Api.Tests/ExistingTests.cs"), "namespace Api.Tests; public class ExistingTests { }\n");
+  writeFileSync(join(dir, "src/Api/Api.csproj"), '<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>\n');
   execFileSync("git", ["add", "-A"], { cwd: dir, env });
   execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir, env });
   return dir;
@@ -97,7 +98,7 @@ class Lab implements ContainerRuntime {
       const out = mount("/job/out")!;
       if (job.fileScope.includes("tests/**")) {
         writeFileSync(join(work, "tests/Api.Tests/GreetTests.cs"), "namespace Api.Tests; public class GreetTests { /* AC-1.1 */ }\n");
-        writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { tests: [{ acId: "AC-1.1", file: "tests/Api.Tests/GreetTests.cs", name: "AC_1_1_GreetsWithHello" }], characterisation: [{ target: "Greeter", file: "tests/Api.Tests/ExistingTests.cs", name: "CHAR_Works" }], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 5000, output_tokens: 800 }, costUsd: 0.05, turns: 6 }));
+        writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { tests: [{ acId: "AC-1.1", file: "tests/Api.Tests/GreetTests.cs", name: "AC_1_1_GreetsWithHello" }], characterisation: [{ target: "Greeter", file: "tests/Api.Tests/ExistingTests.cs", name: "CHAR_Works" }], probes: [{ acId: "AC-1.1", method: "GET", path: "/greet/Ann", expectStatus: 200 }], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 5000, output_tokens: 800 }, costUsd: 0.05, turns: 6 }));
       } else {
         if (this.crashOnImplement) { this.crashOnImplement = false; throw new Error("simulated crash"); }
         writeFileSync(join(work, "src/Api/Greeter.cs"), GREETER.replace('"Hi "', '"Hello "'));
@@ -120,8 +121,21 @@ class Lab implements ContainerRuntime {
     }
     return 0;
   }
-  async exec() { return { code: 0, stdout: "", stderr: "" }; }
-  async logs() { return ""; }
+  appRequests: string[] = [];
+  async exec(id: string, cmd: string[]) {
+    const s = this.specs.get(id)!;
+    if (s.role === "app" && cmd[0] === "curl") {
+      const url = cmd[cmd.length - 1]!;
+      if (cmd.includes("-o")) return { code: 0, stdout: "404", stderr: "" }; // ready check: any answer
+      this.appRequests.push(url);
+      const src = s.mounts.find((m) => m.dst === "/src")!.src;
+      const hello = readFileSync(join(src, "src/Api/Greeter.cs"), "utf8").includes('"Hello "');
+      return { code: 0, stdout: hello ? "Hello Ann\n200" : "Hi Ann\n500", stderr: "" };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  }
+  async isRunning() { return true; }
+  async logs() { return "info: Now listening on: http://127.0.0.1:5080"; }
   async stop() {}
   async remove() {}
   async listByLabel() { return []; }
@@ -196,6 +210,15 @@ describe("brownfield slice end to end (fakes)", () => {
     // thinking steps used Opus 5.5 for ground/spec/plan
     expect(modelCalls).toContain("claude-opus-5-5");
     expect(ledger.readCard(`pr-${runId}`)).toContain("AC-1.1");
+    // accept booted the app next to the test db and replayed the locked probe as evidence
+    const app = [...lab.specs.values()].find((sp) => sp.role === "app")!;
+    expect(app.cmd).toEqual(["dotnet", "run", "--no-build", "--no-launch-profile", "--project", "src/Api/Api.csproj", "--urls", "http://127.0.0.1:5080"]);
+    expect(app.network).toMatch(/^container:/);
+    expect(lab.appRequests).toEqual(["http://127.0.0.1:5080/greet/Ann"]);
+    const ev = ledger.getJson<{ items: { ac: string; kind: string; passed: boolean; http: { status: number; bodySha: string }[] }[]; app: { ok: boolean } }>(s2.steps.get("accept")!.outputs[0]!);
+    expect(ev.app.ok).toBe(true);
+    expect(ev.items[0]).toMatchObject({ ac: "AC-1.1", kind: "http", passed: true });
+    expect(ledger.getArtifact(ev.items[0]!.http[0]!.bodySha).toString()).toBe("Hello Ann");
   });
 
   it("resumes after a crash mid-implement without redoing finished steps", async () => {

@@ -39,6 +39,18 @@ export const ProjectConfig = z.object({
     producerEnv: z.record(z.string(), z.string()).default({}),
     migrate: z.array(z.string()).optional(),
   }).optional(),
+  /** Accept: boot the app next to the test database and send the locked HTTP probes. */
+  accept: z.object({
+    bootApp: z.boolean().default(true),
+    /** the web project to run (auto-detected: the one with Sdk.Web) */
+    project: z.string().optional(),
+    /** any HTTP answer on this path counts as "the app is up" */
+    readyPath: z.string().default("/"),
+    readyTimeoutSec: z.number().default(120),
+    port: z.number().default(5080),
+    /** extra environment for the booted app only (e.g. a flag that makes it run its migrations) */
+    env: z.record(z.string(), z.string()).default({}),
+  }).default({ bootApp: true, readyPath: "/", readyTimeoutSec: 120, port: 5080, env: {} }),
   /** Agent env template: dummy values so the app compiles in container A. */
   agentEnv: z.record(z.string(), z.string()).default({}),
   /** Read-only reference DB for discover (D9): the env var holding its connection string. */

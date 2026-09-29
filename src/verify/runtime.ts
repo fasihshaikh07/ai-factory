@@ -39,6 +39,8 @@ export interface ContainerRuntime {
   wait(id: string, timeoutMs: number): Promise<number | undefined>;
   exec(id: string, cmd: string[]): Promise<{ code: number; stdout: string; stderr: string }>;
   logs(id: string): Promise<string>;
+  /** false once the container's main process has exited */
+  isRunning(id: string): Promise<boolean>;
   stop(id: string, graceSec?: number): Promise<void>;
   remove(id: string): Promise<void>;
   listByLabel(label: string, value?: string): Promise<{ id: string; labels: Record<string, string> }[]>;
@@ -139,6 +141,14 @@ export class DockerCli implements ContainerRuntime {
     } catch (e) {
       const err = e as { code?: number; stdout?: string; stderr?: string };
       return { code: typeof err.code === "number" ? err.code : 1, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
+    }
+  }
+
+  async isRunning(id: string): Promise<boolean> {
+    try {
+      return (await this.run(["inspect", "-f", "{{.State.Running}}", id], 15_000)) === "true";
+    } catch {
+      return false;
     }
   }
 

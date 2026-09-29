@@ -41,6 +41,7 @@ class FakeRt implements ContainerRuntime {
     return 0;
   }
   async exec() { return { code: 0, stdout: "", stderr: "" }; }
+  async isRunning() { return true; }
   async logs() { return ""; }
   async stop() {}
   async remove() { this.removed = true; }
