@@ -97,3 +97,14 @@ describe("audit fixes: test IDs are looked up, not guessed", () => {
     expect(resolveTestIds(["AC_1_1_Returns"], ids).missing).toEqual(["AC_1_1_Returns"]);
   });
 });
+
+describe("deliver targets", () => {
+  it("refuses a non-GitHub forge at start, allows none or GitHub", async () => {
+    const { assertDeliverable } = await import("./executor.js");
+    const { ProjectConfig } = await import("../config/project.js");
+    const base = { project: "x", repo: "/r", stack: "dotnet" };
+    expect(() => assertDeliverable(ProjectConfig.parse({ ...base, forge: { kind: "bitbucket", repo: "o/r" } }))).toThrow(/GitHub only/);
+    expect(() => assertDeliverable(ProjectConfig.parse({ ...base, forge: { kind: "github", repo: "o/r" } }))).not.toThrow();
+    expect(() => assertDeliverable(ProjectConfig.parse(base))).not.toThrow();
+  });
+});

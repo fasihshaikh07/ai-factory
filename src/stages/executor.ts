@@ -42,10 +42,18 @@ export function newRunId(request: string, now = new Date()): string {
   return `${d}-${slug(request)}-${randomBytes(2).toString("hex")}`;
 }
 
+/** Deliver can only push to GitHub today; refuse other forges before any work is done. */
+export function assertDeliverable(project: ProjectConfig): void {
+  if (project.forge && project.forge.kind !== "github") {
+    throw new Error(`Delivering to ${project.forge.kind} isn't supported yet (GitHub only). Remove "forge:" from the project config to get a ready branch locally instead.`);
+  }
+}
+
 /** `factory start`: create the ledger. Execution happens in `execute`. */
 export async function createRun(request: string, projectName: string, operator: string): Promise<string> {
   const project = loadProject(projectName);
   assertSupportedPath(project.repo);
+  assertDeliverable(project);
   const baseCommit = await resolveRef(project.repo, project.baseBranch);
   const runId = newRunId(request);
   const ledger = Ledger.create(runId);
