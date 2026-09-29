@@ -5,7 +5,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { toJsonSchema } from "../contracts/index.js";
+import { toAgentJsonSchema } from "../contracts/index.js";
 import { AGENT_FILE_GLOBS, CONFIG_INTEGRITY_GLOBS, isSecretPath, LOCK_SET_GLOBS } from "../gates/protected.js";
 import { listFiles } from "../context/snapshot.js";
 import { matchesAny } from "../util/glob.js";
@@ -113,7 +113,7 @@ export class ClaudeAgentRunner implements Runner {
       maxUsd: job.limits.maxUsd,
       system: job.pack.system,
       task: job.pack.user,
-      schema: toJsonSchema(job.schema),
+      schema: toAgentJsonSchema(job.schema), // draft-07: what Claude Code's checker accepts
       fileScope: x.fileScope,
       protectedGlobs: [...(x.protectedGlobs ?? [...LOCK_SET_GLOBS, ...CONFIG_INTEGRITY_GLOBS]), ...x.lockedFiles, ...x.extraProtected],
     }));

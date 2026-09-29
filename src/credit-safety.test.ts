@@ -111,3 +111,26 @@ describe("factory smoke", () => {
     expect(seen).not.toContain("gpt-5.5"); // no OpenAI key: GPT routes fall back to Claude
   });
 });
+
+describe("factory smoke doesn't pay twice", () => {
+  it("skips checks that passed, unless the key changed or --all", async () => {
+    const env = join(process.env.FACTORY_HOME!, ".env");
+    writeFileSync(env, "ANTHROPIC_API_KEY=sk-ant-test-0000000000000000\n", { mode: 0o600 });
+    _resetEnvCache();
+    let calls = 0;
+    const provider = () => { calls++; return answering({ ok: true }); };
+    const first = await runSmoke({ provider, rt: {} as never, log: () => undefined, skipContainers: true });
+    const paid = calls;
+    expect(paid).toBeGreaterThan(0);
+    expect(first.every((c) => c.ok)).toBe(true);
+    const second = await runSmoke({ provider, rt: {} as never, log: () => undefined, skipContainers: true });
+    expect(calls).toBe(paid);                                   // nothing paid again
+    expect(second.every((c) => c.ok && c.costUsd === 0 && /skipped/.test(c.detail))).toBe(true);
+    await runSmoke({ provider, rt: {} as never, log: () => undefined, skipContainers: true, all: true });
+    expect(calls).toBe(2 * paid);                               // --all re-checks
+    writeFileSync(env, "ANTHROPIC_API_KEY=sk-ant-other-111111111111111\n", { mode: 0o600 });
+    _resetEnvCache();
+    await runSmoke({ provider, rt: {} as never, log: () => undefined, skipContainers: true });
+    expect(calls).toBe(3 * paid);                               // a new key re-checks
+  });
+});

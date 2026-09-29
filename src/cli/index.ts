@@ -319,12 +319,13 @@ program.command("mcp").description("run the MCP server (for Claude Code: start r
   });
 
 program.command("smoke").option("--project <name>", "also check models this project overrides")
+  .option("--all", "re-check everything, even checks that passed before")
   .description("cheap real check of every paid connection (a few cents): each model, the key proxy, the coding agent")
-  .action(async (o: { project?: string }) => {
+  .action(async (o: { project?: string; all?: boolean }) => {
     const { runSmoke } = await import("../smoke.js");
     const { defaultProvider } = await import("../runners/api.js");
     const { DockerCli } = await import("../verify/runtime.js");
-    const checks = await runSmoke({ provider: defaultProvider, rt: new DockerCli(), project: o.project ? loadProject(o.project) : undefined, log });
+    const checks = await runSmoke({ provider: defaultProvider, rt: new DockerCli(), project: o.project ? loadProject(o.project) : undefined, log, all: o.all });
     const total = checks.reduce((n, c) => n + c.costUsd, 0);
     const ok = checks.length > 0 && checks.every((c) => c.ok);
     log(`\n${ok ? "All checks passed" : "Stopped at the first failure; fix it before a real run"}. Spent about $${total.toFixed(4)}.`);
