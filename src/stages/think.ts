@@ -7,6 +7,9 @@ import { Redactor } from "../context/secrets.js";
 import type { RepoTools } from "../context/tools.js";
 import { ApiRunner, defaultProvider, type Provider } from "../runners/api.js";
 import type { StepContext, StepOutcome } from "./framework.js";
+import { argsSummary } from "../util/trace.js";
+
+const kTok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
 import { modelFor } from "./routing.js";
 
 /** Tests replace this to script models. */
@@ -60,6 +63,16 @@ export async function think<T>(ctx: StepContext, spec: ThinkSpec<T>): Promise<Th
   const runner = new ApiRunner({
     provider: providerFactory,
     tools: spec.repoTools,
+    onTurn: (t) => {
+      const tools = t.calls.filter((c) => c.name !== "submit_result").map((c) => `${c.name}(${argsSummary(c.input)})`);
+      const sha = ctx.trace.blob(JSON.stringify({ model: t.model, turn: t.turn, stop: t.stop, text: t.text, calls: t.calls }, null, 1));
+      ctx.trace.event("model.turn",
+        `${spec.stage} turn ${t.turn} ${t.model}  in ${kTok(t.usage.inputTokens + t.usage.cacheRead)} out ${kTok(t.usage.outputTokens)} $${t.costUsd.toFixed(3)} ${(t.ms / 1000).toFixed(1)}s`
+          + (tools.length ? `  → ${tools.join(", ")}` : "")
+          + (t.calls.some((c) => c.name === "submit_result") ? (t.schemaError ? `  → answer REJECTED: ${t.schemaError.slice(0, 160)}` : "  → answered") : "")
+          + (t.stop === "max_tokens" ? "  (hit max tokens)" : ""),
+        { model: t.model, turn: t.turn, costUsd: t.costUsd, ms: t.ms, usage: t.usage, turnSha: sha });
+    },
     onUsage: async (u) => ctx.usage({ model: u.model, inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite, turns: 1, wallMs: 0, estUsd: u.costUsd }),
   });
   ctx.log(`${spec.stage}: ${model} (effort ${effort}), pack ${pack.manifest.packTokens} tokens`);

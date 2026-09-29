@@ -14,7 +14,7 @@ import { CONFIG_INTEGRITY_GLOBS } from "../gates/protected.js";
 import { matchesAny } from "../util/glob.js";
 import { failureSignature } from "../gates/ladder.js";
 import { changedFiles, commitAll, diffIncludingUntracked, git, headSha, repoRefusals, resetHard } from "../ledger/git.js";
-import { ClaudeAgentRunner } from "../runners/claude-agent.js";
+import { ClaudeAgentRunner, type AgentProgress } from "../runners/claude-agent.js";
 import { ensureAgentImage, ensureEgress, feedHostsFrom } from "../runners/netinfra.js";
 import { buildPack } from "../context/pack.js";
 import { Redactor } from "../context/secrets.js";
@@ -52,7 +52,26 @@ async function produce(ctx: StepContext, key: string, commit: string, stage: Tes
     packagesDir: packagesDir(ctx.runId),
     onContainer: async (id, role) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role } }, ctx.writer); },
     onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
+    onPhase: phaseTracer(ctx),
   });
+}
+
+/** Test-lab phases → trace; a failing phase's log tail is saved (masked) as a blob. */
+function phaseTracer(ctx: StepContext) {
+  return (phase: string, msg: string, data?: Record<string, unknown>) => {
+    const tail = typeof data?.logTail === "string" ? ctx.trace.blob(data.logTail) : undefined;
+    ctx.trace.event(`lab.${phase}`, msg + (tail ? `  (log: ${tail.slice(0, 8)})` : ""), tail ? { logSha: tail } : undefined);
+  };
+}
+
+/** Coding-agent progress → trace. */
+function agentTracer(ctx: StepContext, who: string) {
+  return (p: AgentProgress) => {
+    if (p.kind === "tool") ctx.trace.event("agent.tool", `${who}: ${p.tool} ${p.target ?? ""}`);
+    else if (p.kind === "turn") ctx.trace.event("agent.turn", `${who}: turn  in ${p.in ?? 0} out ${p.out ?? 0}${p.text ? `  "${p.text}"` : ""}`);
+    else if (p.kind === "start") ctx.trace.event("agent.start", `${who}: agent started (${p.model ?? "?"})`);
+    else if (p.kind === "end") ctx.trace.event("agent.end", `${who}: agent finished: ${p.status} after ${p.turns ?? "?"} turns, $${(p.costUsd ?? 0).toFixed(3)}`);
+  };
 }
 
 /**
@@ -65,7 +84,7 @@ async function ensurePackages(ctx: StepContext, commit: string): Promise<void> {
   ctx.log("restoring packages for the coding container");
   const out = await produceDotnetTests({
     runId: ctx.runId, key: "restore", repo: ctx.state.info.repoPath!, commit, stage: "task",
-    exp: { expectPass: [], expectFail: [], compareToBaseline: [] }, project: ctx.project, rt: runtime(), packagesDir: dir, restoreOnly: true,
+    exp: { expectPass: [], expectFail: [], compareToBaseline: [] }, project: ctx.project, rt: runtime(), packagesDir: dir, restoreOnly: true, onPhase: phaseTracer(ctx),
     onContainer: async (id, role) => { await ctx.ledger.append({ type: "container.started", key: "restore", data: { id, role } }, ctx.writer); },
     onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key: "restore", data: { id } }, ctx.writer); },
   });
@@ -207,7 +226,7 @@ Return the list of tests you wrote (acId, file, method name) and the probes.`),
       ],
     });
     const r = await new ClaudeAgentRunner(rt, {
-      runId: ctx.runId, key: `author-tests/${ctx.attempt}`, fileScope: TEST_SCOPE, lockedFiles: [], extraProtected: [],
+      runId: ctx.runId, key: `author-tests/${ctx.attempt}`, fileScope: TEST_SCOPE, lockedFiles: [], extraProtected: [], onProgress: agentTracer(ctx, "test writer"),
       protectedGlobs: CONFIG_INTEGRITY_GLOBS, packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv, noGo: ctx.project.noGo,
       onContainer: async (id) => { await ctx.ledger.append({ type: "container.started", key: "author-tests", data: { id, role: "agent" } }, ctx.writer); },
       onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key: "author-tests", data: { id } }, ctx.writer); },
@@ -378,7 +397,7 @@ export function implementStep(taskId: string): StepDef {
         ],
       });
       const r = await new ClaudeAgentRunner(rt, {
-        runId: ctx.runId, key: `${key}/${ctx.attempt}`, fileScope: task.fileScope, lockedFiles: lock.lock.map((l) => l.file),
+        runId: ctx.runId, key: `${key}/${ctx.attempt}`, fileScope: task.fileScope, lockedFiles: lock.lock.map((l) => l.file), onProgress: agentTracer(ctx, "implementer"),
         extraProtected: [], packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv, noGo: ctx.project.noGo,
         onContainer: async (id) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role: "agent" } }, ctx.writer); },
         onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },

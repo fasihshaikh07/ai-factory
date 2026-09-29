@@ -172,8 +172,18 @@ export class OpenAIProvider implements Provider {
 export interface ApiRunnerDeps {
   provider: (model: string) => Provider;
   tools?: RepoTools;
+  /** For the run trace: one call per model turn, after its tool calls were answered. */
+  onTurn?: (t: TurnTrace) => void;
   /** Called after every model call so usage lands in the ledger even if we crash. */
   onUsage?: (u: { model: string; inputTokens: number; outputTokens: number; cacheRead: number; cacheWrite: number; costUsd: number }) => Promise<void>;
+}
+
+export interface TurnTrace {
+  model: string; turn: number; ms: number; stop: Turn["stop"];
+  usage: Turn["usage"]; costUsd: number;
+  text: string;
+  calls: { name: string; input: unknown; ms: number; resultChars: number; isError?: boolean; result: string }[];
+  schemaError?: string;
 }
 
 function zodIssues(err: z.ZodError): string {
@@ -208,6 +218,7 @@ export class ApiRunner implements Runner {
     for (let turn = 0; turn < job.limits.maxTurns; turn++) {
       if (Date.now() > deadline) return done("timeout");
       let t: Turn;
+      const turnStart = Date.now();
       try {
         t = await convo.next();
       } catch (e) {
@@ -221,14 +232,21 @@ export class ApiRunner implements Runner {
       if (usage.estUsd > job.limits.maxUsd) return done("over-budget");
       if (t.stop === "refusal") return done("refused", { error: "The model declined this request" });
 
+      const traced: TurnTrace["calls"] = [];
+      const report = (schemaError?: string) => this.deps.onTurn?.({
+        model: job.model, turn: turn + 1, ms: Date.now() - turnStart, stop: t.stop, usage: t.usage, costUsd: cost, text: t.text, calls: traced, schemaError,
+      });
       if (!t.calls.length) {
+        report();
         if (++reasks > MAX_REASKS) return done("bad-output", { error: "The model never submitted a result" });
         convo.say(`Call the ${SUBMIT} tool with your final answer.`);
         continue;
       }
       const results: { id: string; content: string; isError?: boolean }[] = [];
       let output: T | undefined;
+      let schemaError: string | undefined;
       for (const c of t.calls) {
+        const callStart = Date.now();
         if (c.name === SUBMIT) {
           const parsed = job.schema.safeParse(c.input);
           if (parsed.success && output === undefined) {
@@ -236,7 +254,8 @@ export class ApiRunner implements Runner {
             results.push({ id: c.id, content: "Accepted." });
           } else if (!parsed.success) {
             reasks++;
-            results.push({ id: c.id, content: `The result doesn't match the schema: ${zodIssues(parsed.error)}. Fix it and call ${SUBMIT} again.`, isError: true });
+            schemaError = zodIssues(parsed.error);
+            results.push({ id: c.id, content: `The result doesn't match the schema: ${schemaError}. Fix it and call ${SUBMIT} again.`, isError: true });
           } else {
             results.push({ id: c.id, content: "Already accepted." });
           }
@@ -245,7 +264,10 @@ export class ApiRunner implements Runner {
         } else {
           results.push({ id: c.id, content: `Tool ${c.name} isn't available.`, isError: true });
         }
+        const r = results[results.length - 1]!;
+        traced.push({ name: c.name, input: c.input, ms: Date.now() - callStart, resultChars: r.content.length, isError: r.isError, result: r.content });
       }
+      report(schemaError);
       if (output !== undefined) return done("ok", { output });
       if (reasks > MAX_REASKS) return done("bad-output", { error: "Output failed the schema after 2 re-asks" });
       convo.toolResults(results);

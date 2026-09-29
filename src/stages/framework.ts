@@ -7,6 +7,7 @@ import type { Policy } from "../gates/policy.js";
 import type { Ledger, Writer } from "../ledger/ledger.js";
 import type { RunState, StepKey } from "../ledger/state.js";
 import type { FailureCategory } from "../gates/ladder.js";
+import type { Trace } from "../util/trace.js";
 
 export type StepOutcome =
   /** outputs: named artifact shas (first is the main one). */
@@ -32,6 +33,8 @@ export interface StepContext {
   /** failures from the previous attempt of this step (failures.json) */
   priorFailures: Failure[];
   log: (msg: string) => void;
+  /** the run trace (model turns, tool calls, container phases); see src/util/trace.ts */
+  trace: Trace;
   /** record model usage as it happens */
   usage: (u: Usage & { model: string }) => Promise<void>;
 }

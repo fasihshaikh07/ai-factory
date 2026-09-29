@@ -143,8 +143,12 @@ export class Ledger {
     appendFileSync(this.eventsPath, JSON.stringify(full) + "\n");
     const fd = openSync(this.eventsPath, "r+");
     try { fsyncSync(fd); } finally { closeSync(fd); }
+    try { this.onAppend?.(full); } catch { /* observers never break the ledger */ }
     return full;
   }
+
+  /** Observer for the run trace (after the event is durable). */
+  onAppend?: (ev: LedgerEvent) => void;
 
   // ---------- artifacts ----------
 

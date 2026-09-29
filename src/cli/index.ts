@@ -53,7 +53,7 @@ program.command("resume").argument("<run>").description("continue a run").action
   await runAndReport(openRun(run).runId);
 });
 
-program.command("status").argument("[run]").description("state, current step, cost, open card").action((run?: string) => {
+program.command("status").argument("[run]").description("state, current step, cost, open card").action(async (run?: string) => {
   const runs = run ? [openRun(run).runId] : Ledger.listRuns().slice(-10);
   if (!runs.length) return log("No runs yet.");
   for (const id of runs) {
@@ -61,7 +61,16 @@ program.command("status").argument("[run]").description("state, current step, co
     const steps = [...s.steps.values()];
     const current = s.inFlight?.step ?? steps.filter((x) => x.status !== "completed").pop()?.step ?? steps[steps.length - 1]?.step ?? "-";
     log(`${id}  ${statusLabel(s.status).padEnd(10)} step ${current.padEnd(18)} $${s.costUsd.toFixed(2)}${s.openCard ? `  card: ${s.openCard.kind} ${s.openCard.artifactSha.slice(0, 8)}` : ""}${s.parkedReason ? `\n    parked: ${s.parkedReason}` : ""}`);
-    if (run) for (const x of steps) log(`    ${x.status.padEnd(11)} ${x.step}  (attempts ${x.attempts})`);
+    if (run) {
+      const { lastActivity, fmtElapsed } = await import("../util/trace.js");
+      const last = lastActivity(Ledger.open(id).dir);
+      if (last) {
+        const ago = Date.now() - Date.parse(last.ts);
+        const busy = s.status === "running" || !!s.inFlight;
+        log(`    now: ${last.step ?? "run"}${last.attempt ? ` attempt ${last.attempt}` : ""} · ${last.msg} · ${fmtElapsed(ago).slice(1)} ago${busy && ago > 10 * 60_000 ? `  ⚠ no activity for ${Math.round(ago / 60_000)} min (see factory logs ${id} --follow)` : ""}`);
+      }
+      for (const x of steps) log(`    ${x.status.padEnd(11)} ${x.step}  (attempts ${x.attempts})`);
+    }
   }
 });
 
@@ -175,6 +184,7 @@ program.command("baseline").requiredOption("--project <name>")
       runId: `baseline-${project.project}`, key: "baseline", repo: project.repo, commit, stage: "baseline",
       exp: { expectPass: [], expectFail: [], compareToBaseline: [] }, project, rt, packagesDir: pk,
       onContainer: async (id, role) => log(`  container ${role} ${id.slice(0, 12)}`),
+      onPhase: (_p, msg) => log(`  ${msg}`),
     });
     const secs = Math.round((Date.now() - started) / 1000);
     if (!out.build.ok) {
@@ -194,6 +204,48 @@ program.command("baseline").requiredOption("--project <name>")
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `baseline-${commit}.json`), JSON.stringify(out.testRun));
     log(`saved; discover will reuse it for this commit`);
+  });
+
+program.command("logs").argument("<run>")
+  .option("-f, --follow", "keep printing new lines while the run works (Ctrl+C to stop)")
+  .option("--step <key>", "only lines of one step, e.g. plan or implement/TASK-1")
+  .option("--full", "also print what the AI answered and each tool call's result, for every model turn")
+  .description("the run's trace: every step, model turn, tool call, container phase and gate, with times")
+  .action(async (run: string, o: { follow?: boolean; step?: string; full?: boolean }) => {
+    const { readTrace, formatLine } = await import("../util/trace.js");
+    const l = openRun(run);
+    const show = (e: import("../util/trace.js").TraceEvent) => {
+      if (o.step && !(e.step === o.step || e.step?.startsWith(`${o.step}/`))) return;
+      log(formatLine(e));
+      const sha = (e.data as { turnSha?: string; logSha?: string } | undefined);
+      const blob = sha?.turnSha ?? sha?.logSha;
+      if (o.full && blob && l.hasArtifact(blob)) log(l.getArtifact(blob).toString("utf8").split("\n").map((x) => `      | ${x}`).join("\n"));
+    };
+    let seen = 0;
+    const flush = () => { const all = readTrace(l.dir); for (const e of all.slice(seen)) show(e); seen = all.length; };
+    flush();
+    if (!seen) log("No trace yet for this run (runs started before tracing existed have none).");
+    if (o.follow) {
+      await new Promise<void>((resolve) => {
+        const t = setInterval(() => {
+          flush();
+          const st = replay(l.events()).status;
+          if (typeof st === "object" || st === "delivered" || st === "parked" || st === "waiting" || st === "paused") { clearInterval(t); flush(); resolve(); }
+        }, 1000);
+      });
+    }
+  });
+
+program.command("report").argument("[run]")
+  .option("--all", "compare steps across all runs")
+  .description("step scorecard: first-time pass, retries and why, cost, time, tokens, gates, what you changed")
+  .action(async (run: string | undefined, o: { all?: boolean }) => {
+    const { formatAll, formatRun, scoreRun } = await import("../report.js");
+    if (o.all || !run) {
+      const runs = Ledger.listRuns().map((id) => { try { return scoreRun(Ledger.open(id)); } catch { return undefined; } }).filter((r): r is NonNullable<typeof r> => !!r);
+      return log(runs.length ? formatAll(runs) : "No runs yet.");
+    }
+    log(formatRun(scoreRun(openRun(run))));
   });
 
 program.command("verify-evidence").argument("<run>").description("re-check every recorded gate decision").action((run: string) => {

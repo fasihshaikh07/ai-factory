@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Failure } from "../contracts/index.js";
+import type { Failure, LedgerEvent } from "../contracts/index.js";
 import { loadProject, type ProjectConfig } from "../config/project.js";
 import { DEFAULT_POLICY, mergePolicy, type Policy } from "../gates/policy.js";
 import { DEFAULT_LADDER, nextOnFailure, type AttemptRecord, type LadderAction } from "../gates/ladder.js";
@@ -14,6 +14,8 @@ import { applyExpiredDeadline } from "../ledger/human.js";
 import { HUMAN_WRITER, Ledger } from "../ledger/ledger.js";
 import { canSkip, eventKey, inputsHash, replay, splitKey, type RunState } from "../ledger/state.js";
 import { assertSupportedPath } from "../util/paths.js";
+import { Tracer } from "../util/trace.js";
+import { saveReport } from "../report.js";
 import { hashJson, sha256 } from "../util/hash.js";
 import { REPO_ROOT } from "../runners/netinfra.js";
 import { setPrice } from "../runners/pricing.js";
@@ -100,8 +102,12 @@ function attemptHistory(ledger: Ledger, step: string): AttemptRecord[] {
 
 export interface ExecuteResult { status: string; message: string }
 
-export async function execute(runId: string, log: Log = () => undefined): Promise<ExecuteResult> {
+export async function execute(runId: string, echo: Log = () => undefined): Promise<ExecuteResult> {
   const ledger = Ledger.open(runId);
+  // the run trace: every console line, model turn, tool call, container phase and gate, with timestamps
+  const trace = new Tracer(ledger.dir, { echo, putBlob: (c) => ledger.putArtifact(c) });
+  const log = (msg: string) => trace.event("log", msg);
+  ledger.onAppend = (ev) => traceLedgerEvent(trace, ev);
   let state = replay(ledger.events());
   const project = loadProject(state.info.project);
   const policy = policyFor(project);
@@ -116,6 +122,8 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
     throw e;
   }
   const writer = lock;
+  trace.startHeartbeat();
+  trace.event("run", `executor started (pid ${process.pid})`);
   try {
     state = replay(ledger.events());
     // crash recovery: an unfinished step becomes interrupted; its containers are removed
@@ -165,11 +173,12 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
       const rung = history.length ? Number((lastFail?.data as { nextRung?: number } | undefined)?.nextRung ?? 0) : 0;
       const priorFailures: Failure[] = history.length && lastFail?.outputs?.[0] ? ledger.getJson<Failure[]>(lastFail.outputs[0]) : [];
       const key = eventKey(n.step.key, attempt);
+      trace.setStep(n.step.key, attempt);
       await ledger.append({ type: "step.started", key, inputsHash: n.hash, data: { rung } }, writer);
       log(`▶ ${n.step.key} (attempt ${attempt}${rung ? `, rung ${rung}` : ""})`);
 
       const ctx: StepContext = {
-        runId, ledger, writer, state, project, policy, attempt, rung, priorFailures, log,
+        runId, ledger, writer, state, project, policy, attempt, rung, priorFailures, log, trace,
         usage: async (u) => {
           await ledger.append({ type: "usage", key, data: {
             "gen_ai.request.model": u.model, "gen_ai.usage.input_tokens": u.inputTokens, "gen_ai.usage.output_tokens": u.outputTokens,
@@ -240,6 +249,29 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
       }
     }
   } finally {
+    trace.setStep(undefined);
+    try { saveReport(ledger); } catch { /* the scorecard never breaks a run */ }
+    trace.event("run", "executor stopped");
+    trace.stopHeartbeat();
+    ledger.onAppend = undefined;
     await lock.release();
+  }
+}
+
+/** Ledger events that matter for "where is it?" become readable trace lines. */
+function traceLedgerEvent(trace: Tracer, ev: LedgerEvent): void {
+  const d = (ev.data ?? {}) as Record<string, unknown>;
+  switch (ev.type) {
+    case "gate.result":
+      trace.event("gate", `gate ${d.gateId} ${d.passed ? "passed" : "FAILED"}${d.passed ? "" : `: ${String(d.details ?? "").slice(0, 200)}`}`, { gateId: d.gateId, passed: d.passed });
+      break;
+    case "container.started": trace.event("container", `container ${d.role} started ${String(d.id).slice(0, 12)}`, { id: d.id, role: d.role }); break;
+    case "container.removed": trace.event("container", `container removed ${String(d.id).slice(0, 12)}`, { id: d.id }); break;
+    case "human.requested": trace.event("card", `waiting for you: ${d.kind} card ${String(d.artifactSha).slice(0, 8)}`); break;
+    case "human.decided": trace.event("card", `decided: ${d.decision} by ${d.by}`); break;
+    case "run.parked": trace.event("park", `PARKED: ${d.reason}`); break;
+    case "step.failed": if (d.action) trace.event("ladder", `attempt failed (${d.category}) → ${d.action}${d.nextRung !== undefined ? ` at rung ${d.nextRung}` : ""}: ${d.reason ?? ""}`); break;
+    case "workspace.created": trace.event("git", `worktree ${d.path} on ${d.branch}`); break;
+    default: break;
   }
 }

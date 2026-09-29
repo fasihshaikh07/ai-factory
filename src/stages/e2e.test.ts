@@ -101,6 +101,11 @@ class Lab implements ContainerRuntime {
         writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { tests: [{ acId: "AC-1.1", file: "tests/Api.Tests/GreetTests.cs", name: "AC_1_1_GreetsWithHello" }], characterisation: [{ target: "Greeter", file: "tests/Api.Tests/ExistingTests.cs", name: "CHAR_Works" }], probes: [{ acId: "AC-1.1", method: "GET", path: "/greet/Ann", expectStatus: 200 }], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 5000, output_tokens: 800 }, costUsd: 0.05, turns: 6 }));
       } else {
         if (this.crashOnImplement) { this.crashOnImplement = false; throw new Error("simulated crash"); }
+        writeFileSync(join(out, "progress.jsonl"), [
+          { ts: 1, kind: "start", model: "claude-sonnet-5" },
+          { ts: 2, kind: "tool", tool: "Edit", target: "src/Api/Greeter.cs" },
+          { ts: 3, kind: "end", status: "ok", turns: 9, costUsd: 0.08 },
+        ].map((x) => JSON.stringify(x)).join("\n") + "\n");
         writeFileSync(join(work, "src/Api/Greeter.cs"), GREETER.replace('"Hi "', '"Hello "'));
         writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { done: true, filesChanged: ["src/Api/Greeter.cs"], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 8000, output_tokens: 900 }, costUsd: 0.08, turns: 9 }));
       }
@@ -210,6 +215,22 @@ describe("brownfield slice end to end (fakes)", () => {
     // thinking steps used Opus 5.5 for ground/spec/plan
     expect(modelCalls).toContain("claude-opus-5-5");
     expect(ledger.readCard(`pr-${runId}`)).toContain("AC-1.1");
+    // the trace shows every level: steps, model turns, lab phases, containers, gates, the coding agent's actions
+    const trace = readFileSync(join(ledger.dir, "run.log"), "utf8");
+    for (const want of [/▶ intake/, /intake turn 1 claude-haiku-4-5 .*→ answered/, /lab: build ok/, /lab: tests ran/, /container producer started/,
+      /gate author-tests.fails-on-base passed/, /implementer: Edit src\/Api\/Greeter.cs/, /implementer: agent finished: ok after 9 turns/, /lab: app started/, /lab: probe GET \/greet\/Ann → 200/]) {
+      expect(trace, String(want)).toMatch(want);
+    }
+    expect(trace).not.toContain("sk-ant-test-not-real");
+    // the scorecard covers every step, with cost where a model ran
+    const { scoreRun, formatRun } = await import("../report.js");
+    const score = scoreRun(ledger);
+    expect(score.steps.find((x) => x.step === "plan")).toMatchObject({ outcome: "completed", firstTimePass: true, attempts: 1 });
+    expect(score.steps.find((x) => x.step === "plan")!.costUsd).toBeGreaterThan(0);
+    expect(score.steps.find((x) => x.step === "clarify")!.human).toMatchObject({ questionsAsked: 1, answersChanged: 0 });
+    expect(score.steps.find((x) => x.step === "approve")!.human.decisions).toEqual(["approve"]);
+    expect(formatRun(score)).toMatch(/implement\/TASK-1 +completed/);
+    expect(existsSync(join(ledger.dir, "report.json"))).toBe(true);
     // accept booted the app next to the test db and replayed the locked probe as evidence
     const app = [...lab.specs.values()].find((sp) => sp.role === "app")!;
     expect(app.cmd).toEqual(["dotnet", "run", "--no-build", "--no-launch-profile", "--project", "src/Api/Api.csproj", "--urls", "http://127.0.0.1:5080"]);

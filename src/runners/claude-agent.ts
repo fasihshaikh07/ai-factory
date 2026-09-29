@@ -33,6 +33,22 @@ export interface AgentJobExtras {
   noGo?: string[];
   onContainer?: (id: string) => Promise<void>;
   onRemoved?: (id: string) => Promise<void>;
+  /** for the run trace: each progress line the agent writes (tool use, turn, end) */
+  onProgress?: (p: AgentProgress) => void;
+}
+
+export interface AgentProgress { ts: number; kind: "start" | "tool" | "turn" | "end"; tool?: string; target?: string; in?: number; out?: number; text?: string; status?: string; turns?: number; costUsd?: number; model?: string }
+
+/** Read new complete lines of progress.jsonl from `offset`. */
+export function readProgress(file: string, offset: number): { lines: AgentProgress[]; offset: number } {
+  if (!existsSync(file)) return { lines: [], offset };
+  const buf = readFileSync(file);
+  if (buf.length <= offset) return { lines: [], offset };
+  const chunk = buf.subarray(offset).toString("utf8");
+  const end = chunk.lastIndexOf("\n");
+  if (end < 0) return { lines: [], offset };
+  const lines = chunk.slice(0, end).split("\n").filter(Boolean).flatMap((l) => { try { return [JSON.parse(l) as AgentProgress]; } catch { return []; } });
+  return { lines, offset: offset + Buffer.byteLength(chunk.slice(0, end + 1)) };
 }
 
 export interface AgentOut {
@@ -136,7 +152,18 @@ export class ClaudeAgentRunner implements Runner {
       });
       await x.onContainer?.(id);
       await this.rt.start(id);
-      const code = await this.rt.wait(id, job.limits.timeoutSec * 1000);
+      // forward the agent's progress to the trace while it works
+      const progressFile = join(outDir, "progress.jsonl");
+      let offset = 0;
+      const pump = () => { const r = readProgress(progressFile, offset); offset = r.offset; for (const p of r.lines) x.onProgress?.(p); };
+      const timer = x.onProgress ? setInterval(pump, 3000) : undefined;
+      let code: number | undefined;
+      try {
+        code = await this.rt.wait(id, job.limits.timeoutSec * 1000);
+      } finally {
+        if (timer) clearInterval(timer);
+        pump();
+      }
       await this.rt.stop(id, 5); // kills leftover processes before the core commits
       const resultPath = join(outDir, "result.json");
       const usage = emptyUsage();

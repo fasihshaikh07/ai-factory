@@ -1,7 +1,11 @@
 // Runs inside container A. Reads /job/in.json, drives the Claude Agent SDK in /work,
 // writes /job/out/result.json. No git, no ledger, no real secrets; the API key is added
 // by the factory proxy (ANTHROPIC_BASE_URL points at it).
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+
+// progress for the factory's run trace: the host reads this file while the agent works
+const progress = (p) => { try { appendFileSync("/job/out/progress.jsonl", JSON.stringify({ ts: Date.now(), ...p }) + "\n"); } catch { /* never break the run */ } };
+const short = (s, n = 100) => { s = String(s ?? ""); return s.length > n ? s.slice(0, n - 3) + "..." : s; };
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const job = JSON.parse(readFileSync("/job/in.json", "utf8"));
@@ -38,6 +42,7 @@ const hooks = {
     hooks: [async (input) => {
       const tool = input.tool_name;
       const ti = input.tool_input ?? {};
+      progress({ kind: "tool", tool, target: short(rel(ti.file_path ?? ti.notebook_path ?? ti.path ?? "") || ti.command || ti.pattern || "") });
       if (["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(tool)) {
         const reason = editDecision(ti.file_path ?? ti.notebook_path);
         if (reason) {
@@ -77,7 +82,12 @@ async function main() {
     },
   });
   for await (const m of res) {
-    if (m.type === "system" && m.subtype === "init") out.sessionId = m.session_id;
+    if (m.type === "system" && m.subtype === "init") { out.sessionId = m.session_id; progress({ kind: "start", model: m.model }); }
+    if (m.type === "assistant") {
+      const u = m.message?.usage ?? {};
+      const text = (m.message?.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join(" ");
+      progress({ kind: "turn", in: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0), out: u.output_tokens ?? 0, text: short(text, 160) });
+    }
     if (m.type === "result") {
       out.turns = m.num_turns;
       out.costUsd = m.total_cost_usd;
@@ -90,6 +100,7 @@ async function main() {
         out.status = { error_max_turns: "max-turns", error_max_budget_usd: "over-budget", error_max_structured_output_retries: "bad-output" }[m.subtype] ?? "error";
         out.error = m.subtype;
       }
+      progress({ kind: "end", status: out.status, turns: m.num_turns, costUsd: m.total_cost_usd });
       if (typeof m.api_error_status === "number") {
         out.apiErrorStatus = m.api_error_status;
         if ([400, 401, 403, 404].includes(m.api_error_status)) { out.status = "config-error"; out.error = `API error ${m.api_error_status}: ${String(m.result ?? "").slice(0, 300)}`; }

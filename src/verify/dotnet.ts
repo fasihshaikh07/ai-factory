@@ -37,6 +37,8 @@ export interface ProduceInput {
   restoreOnly?: boolean;
   /** Accept: boot the app in the db's namespace and send these probes before the tests run. */
   accept?: { probes: Probe[] };
+  /** For the run trace: one call per finished phase. */
+  onPhase?: (phase: string, msg: string, data?: Record<string, unknown>) => void;
 }
 
 export interface Probe { acId: string; method: string; path: string; body?: string; expectStatus: number }
@@ -142,7 +144,12 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
   };
 
   try {
+    const t0 = Date.now();
+    const phase = (name: string, msg: string, data?: Record<string, unknown>) => inp.onPhase?.(name, msg, data);
+    const secs = (from: number) => `${((Date.now() - from) / 1000).toFixed(0)}s`;
     copyTree(inp.repo, inp.commit, src);
+    phase("copy", `lab: copied ${inp.commit.slice(0, 10)} (${secs(t0)})`);
+    const tRestore = Date.now();
     const toolVersions: Record<string, string> = { sdkImage: await rt.imageDigest(project.dotnet.sdkImage) };
 
     // restore: only package feeds, through the feed proxy (host allowlist; URL-prefix TLS proxy not built yet)
@@ -152,6 +159,7 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
       mounts: [{ src, dst: "/src" }, { src: nuget, dst: "/nuget" }], cmd: ["dotnet", "restore", ...sln],
     });
     const rCode = await rt.wait(r, project.dotnet.buildTimeoutSec * 1000);
+    phase("restore", `lab: restore ${rCode === 0 ? "ok" : `FAILED (exit ${rCode ?? "timeout"})`} (${secs(tRestore)})`, rCode === 0 ? undefined : { logTail: (await rt.logs(r)).split("\n").slice(-40).join("\n") });
     logs.restore = await rt.logs(r);
     await finish(r);
     if (inp.restoreOnly) {
@@ -168,7 +176,9 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
         mounts: [{ src, dst: "/src" }, { src: nuget, dst: "/nuget", ro: true }],
         cmd: ["dotnet", "build", ...sln, "--no-restore", "-nologo", "-p:TreatWarningsAsErrors=false"],
       });
+      const tBuild = Date.now();
       const bCode = await rt.wait(b, project.dotnet.buildTimeoutSec * 1000);
+      phase("build", `lab: build ${bCode === 0 ? "ok" : `FAILED (exit ${bCode ?? "timeout"})`} (${secs(tBuild)})`);
       await rt.stop(b); // stop before read
       logs.build = await rt.logs(b);
       await finish(b);
@@ -201,7 +211,9 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
         env: { POSTGRES_USER: "factory_admin", POSTGRES_PASSWORD: randomBytes(16).toString("hex"), POSTGRES_DB: "postgres" },
         capAdd: ["CHOWN", "SETUID", "SETGID", "FOWNER", "DAC_OVERRIDE"], mounts: [], cmd: [],
       });
+      const tDb = Date.now();
       await waitForPg(rt, dbId);
+      phase("db", `lab: test Postgres ready (${secs(tDb)})`);
       const ident = dbVars.DB_USER.replace(/"/g, "");
       const pw = dbVars.DB_PASSWORD.replace(/'/g, "''");
       // separate -c flags: CREATE DATABASE can't run inside the single transaction one -c makes
@@ -241,10 +253,21 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
     };
 
     let accept: AcceptResult | undefined;
-    if (inp.accept) accept = await bootAndProbe(inp, src, nuget, dbId, dbEnv, launch, finish);
+    if (inp.accept) {
+      accept = await bootAndProbe(inp, src, nuget, dbId, dbEnv, launch, finish);
+      phase("app", accept.boot.attempted ? `lab: app ${accept.boot.ok ? `started, first answer HTTP ${accept.boot.firstStatus}` : `DIDN'T START: ${accept.boot.note}`} (${((accept.boot.ms ?? 0) / 1000).toFixed(0)}s)` : `lab: app not booted: ${accept.boot.note}`,
+        accept.boot.ok ? undefined : { logTail: accept.boot.logTail });
+      for (const p of accept.probes) phase("probe", `lab: probe ${p.method} ${p.path} → ${p.status} (expected ${p.expectStatus})`);
+    }
 
     const filter = inp.filterExpr ?? (inp.onlyTests?.length ? filterFor(inp.onlyTests) : undefined);
+    const tTests = Date.now();
     const first = await runTests(filter, resTest);
+    {
+      const rs = first.reports.flatMap((r) => r.results);
+      phase("tests", `lab: tests ran: ${rs.length} (${rs.filter((x) => x.outcome === "passed").length} passed, ${rs.filter((x) => x.outcome === "failed").length} failed), exit ${first.code} (${secs(tTests)})`,
+        first.reports.length ? undefined : { logTail: first.log.split("\n").slice(-40).join("\n") });
+    }
     logs.test = first.log;
     let results = first.reports.flatMap((r) => r.results);
 
@@ -255,6 +278,7 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
     if (again.length && again.length <= 20 && probe) {
       const dir = join(work, "results-rerun");
       mkdirSync(dir, { recursive: true });
+      phase("rerun", `lab: re-running ${again.length} failed non-locked test(s) once`);
       const second = await runTests(filterFor(again), dir);
       results = markFlaky(results, second.reports.flatMap((r) => r.results));
     }
