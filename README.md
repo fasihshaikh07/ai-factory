@@ -303,7 +303,7 @@ factory verify-evidence <run>  # re-check every recorded decision
 
 The branch `factory/<run>` holds the stub commit (if any), the locked tests, one commit per task and one evidence-manifest commit.
 
-**If a run parks**, `factory status <run>` says why (cap hit, a check failed twice, a locked test keeps failing…). Fix the cause and run `factory resume <run>`, or start a new run.
+**If a run parks**, `factory status <run>` says why (cap hit, a check failed twice, a locked test keeps failing…). Fix the cause and run `factory resume <run>`, raise the limit with `factory raise-cap`, or start a new run.
 
 ---
 
@@ -322,6 +322,7 @@ The branch `factory/<run>` holds the stub commit (if any), the locked tests, one
 | `factory approve <run> <hash> [--note]` | Approves the plan. Terminal only. |
 | `factory reject <run> <hash> --reason` | Rejects the plan (the run parks). Terminal only. |
 | `factory resume <run>` | Continues a run (after a park, crash or restart). |
+| `factory raise-cap <run> --cost 12` | Raises a limit that parked the run (`--cost`, `--minutes`, `--attempts`) and continues. Terminal only. |
 | `factory pause <run>` / `stop <run>` | Pauses or stops at the next step boundary. |
 | `factory steer <run> <file>` | Records a requirement change (applying it isn't built yet). |
 | `factory verify-evidence <run>` | Re-runs every gate decision from the ledger. |
