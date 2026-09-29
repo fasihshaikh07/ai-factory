@@ -90,6 +90,13 @@ export function agentFileMasks(worktree: string, noGo: string[] = []): { files: 
   return { files, dirs: [...dirs], secrets };
 }
 
+/** Selftest only: files the container writes instead of calling a model, and the answer it returns. */
+export interface AgentScript { writes: { path: string; content: string }[]; output: unknown }
+let agentScript: ((step: string) => AgentScript | undefined) | undefined;
+export function setAgentScript(f: typeof agentScript): void {
+  agentScript = f;
+}
+
 export class ClaudeAgentRunner implements Runner {
   readonly kind = "claude-agent" as const;
   constructor(private readonly rt: ContainerRuntime, private readonly extras: AgentJobExtras) {}
@@ -116,6 +123,7 @@ export class ClaudeAgentRunner implements Runner {
       schema: toAgentJsonSchema(job.schema), // draft-07: what Claude Code's checker accepts
       fileScope: x.fileScope,
       protectedGlobs: [...(x.protectedGlobs ?? [...LOCK_SET_GLOBS, ...CONFIG_INTEGRITY_GLOBS]), ...x.lockedFiles, ...x.extraProtected],
+      script: agentScript?.(job.step),
     }));
 
     const mounts: Mount[] = [

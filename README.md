@@ -278,7 +278,15 @@ Tests that already fail are fine: they're remembered, and a run is only blamed f
 
 All `factory` commands run in the **Ubuntu terminal** on Windows (any terminal on Mac/Linux); see *Where to type these* below.
 
-**Spend cents before dollars.** After adding your key, check every paid connection first:
+**Check the whole machine for free first:**
+
+```bash
+factory selftest     # one full run on a small sample repo, $0, about 5 minutes
+```
+
+It builds a tiny .NET shop with one bug, then runs the whole pipeline on it for real: test lab, test database, the coding container, every check, the approval card (approved automatically) and delivery to a local branch. Only the AI answers are scripted, so nothing is spent. It ends with one line per piece (`ok` or `FAIL`) and cleans up after itself. No API key needed.
+
+**Then spend cents before dollars.** After adding your key, check every paid connection:
 
 ```bash
 factory smoke        # one tiny call per model, the key proxy, the coding agent in its container: a few cents
@@ -404,6 +412,7 @@ factory show-card <run> --pr       # paste this as the PR description
 | Command | What it does |
 |---|---|
 | `factory doctor` | Checks Node, containers, secrets, the key proxy and projects. |
+| `factory selftest` | Free end-to-end check: one full run on a small sample repo with scripted AI answers. `--keep` keeps the sample for a look. |
 | `factory smoke` | Cheap real check of every paid connection (each model, the key proxy, the coding agent). A few cents. Run it after adding or changing keys. |
 | `factory init <repo>` | Adds a project: copies the repo into Linux if needed, detects settings, writes the config. |
 | `factory mcp` | Runs the MCP server for Claude Code (registered by setup). |

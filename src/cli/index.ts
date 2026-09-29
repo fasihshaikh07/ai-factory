@@ -56,7 +56,6 @@ program.command("start")
       sources: req.sources,
     });
     log(`run ${runId} (request from ${describeSources(req.sources)})`);
-    log(`run ${runId}`);
     await runAndReport(runId);
   });
 
@@ -341,6 +340,14 @@ program.command("smoke").option("--project <name>", "also check models this proj
     const ok = checks.length > 0 && checks.every((c) => c.ok);
     log(`\n${ok ? "All checks passed" : "Stopped at the first failure; fix it before a real run"}. Spent about $${total.toFixed(4)}.`);
     if (!ok) process.exitCode = 1;
+  });
+
+program.command("selftest").option("--keep", "keep the sample repo and project afterwards")
+  .description("one full run on a small sample repo for $0: real test lab, database, coding container, checks and delivery; only the AI answers are scripted")
+  .action(async (o: { keep?: boolean }) => {
+    const { runSelftest } = await import("../selftest/index.js");
+    const r = await runSelftest({ keep: o.keep, log });
+    if (!r.ok) process.exitCode = 1;
   });
 
 program.command("doctor").description("check this machine and the setup").action(async () => {

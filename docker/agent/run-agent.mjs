@@ -61,7 +61,30 @@ const hooks = {
   }],
 };
 
+/**
+ * Selftest only (`factory selftest`): write the scripted files instead of calling a model.
+ * The same edit rules apply, so the container, masks and host-side gates are exercised for real.
+ */
+async function scripted(script) {
+  const { mkdirSync } = await import("node:fs");
+  const { dirname } = await import("node:path");
+  progress({ kind: "start", model: "scripted" });
+  for (const w of script.writes ?? []) {
+    progress({ kind: "tool", tool: "Write", target: rel(w.path) });
+    const reason = editDecision(`/work/${w.path}`);
+    if (reason) { out.deniedEdits.push(rel(w.path)); continue; }
+    mkdirSync(dirname(`/work/${w.path}`), { recursive: true });
+    writeFileSync(`/work/${w.path}`, w.content);
+  }
+  out.status = "ok";
+  out.output = script.output;
+  out.turns = 1;
+  out.usage = { input_tokens: 0, output_tokens: 0 };
+  progress({ kind: "end", status: "ok", turns: 1, costUsd: 0 });
+}
+
 async function main() {
+  if (job.script) return scripted(job.script);
   const res = query({
     prompt: job.task,
     options: {
