@@ -85,6 +85,7 @@ export function staticDir(): string {
 const STATIC: Record<string, { file: string; type: string }> = {
   "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
   "/md.js": { file: "md.js", type: "text/javascript; charset=utf-8" },
+  "/theme.js": { file: "theme.js", type: "text/javascript; charset=utf-8" },
   "/app.css": { file: "app.css", type: "text/css; charset=utf-8" },
   "/favicon.svg": { file: "favicon.svg", type: "image/svg+xml" },
 };

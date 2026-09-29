@@ -5,7 +5,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildInventory, type DesignInventory } from "../design/inventory.js";
 import { depsOf, detectLayout } from "../design/layout.js";
-import { plannedChanges, sizeChange, type SizeResult } from "../design/size.js";
+import { LEVEL_NAMES, LEVELS, plannedChanges, sizeChange, type SizeResult } from "../design/size.js";
 import { uiSizeCardLine } from "../design/card.js";
 import { gitSource } from "../design/source.js";
 import { verifyEvidence } from "../gates/engine.js";
@@ -94,7 +94,12 @@ export function runsView(limit = 50): RunRow[] {
 // ---------- one run ----------
 
 export interface Attempt { attempt: number; outcome: "running" | "completed" | "failed" | "interrupted" | "waiting" | "decided"; rung: number; why?: string; next?: string }
-export interface TimelineRow { step: string; stage: string; status: string; attempts: number; costUsd: number; tries: Attempt[]; note?: string }
+export interface GateChip { gateId: string; passed: boolean; step?: string; seq: number; safety?: boolean }
+export interface TimelineRow {
+  step: string; stage: string; status: string; attempts: number; costUsd: number; tries: Attempt[]; note?: string;
+  /** machine time of all attempts, seconds */
+  activeSec: number; models: string[]; gates: GateChip[];
+}
 
 /** The steps in pipeline order (tasks appear once the plan is done), each with its attempts. */
 export function timeline(ledger: Ledger, s: RunState): TimelineRow[] {
@@ -134,6 +139,7 @@ export function timeline(ledger: Ledger, s: RunState): TimelineRow[] {
   for (const [step, list] of tries) {
     for (const a of list) if (a.outcome === "waiting" && s.openCard?.step !== step) a.outcome = "decided";
   }
+  const score = new Map(scoreRun(ledger).steps.map((x) => [x.step, x]));
   const parkEv = s.status === "parked" ? [...events].reverse().find((e) => e.type === "run.parked") : undefined;
   const parkedStep = (parkEv?.data as { step?: string } | undefined)?.step;
   return order.map((step) => {
@@ -145,9 +151,15 @@ export function timeline(ledger: Ledger, s: RunState): TimelineRow[] {
     if (parkedStep === step) status = "parked";
     return {
       step, stage: stageOf(step), status, attempts: r?.attempts ?? 0, costUsd: cost.get(step) ?? 0, tries: t,
+      activeSec: Math.round(score.get(step)?.activeSec ?? 0), models: score.get(step)?.models ?? [],
+      gates: gateChips(s).filter((g) => g.step === step),
       ...(parkedStep === step && s.parkedReason ? { note: s.parkedReason } : {}),
     };
   });
+}
+
+export function gateChips(s: RunState): GateChip[] {
+  return s.gates.map((g) => ({ gateId: g.gateId, passed: g.passed, step: g.step, seq: g.seq, ...(g.safety ? { safety: true } : {}) }));
 }
 
 /** The commands a card prints, with its hash filled in: what the person pastes into their terminal. */
@@ -194,6 +206,7 @@ export function runView(ledger: Ledger) {
     activeMin: s.activeMs / 60_000,
     lastActivity: last ? { ts: last.ts, msg: last.msg, where: last.step ?? "run" } : undefined,
     timeline: timeline(ledger, s),
+    gates: gateChips(s),
     card: s.openCard ? { kind: s.openCard.kind, hash: hash8, markdown: card ?? "(the card file is missing)", commands: cardCommands(card ?? "", ledger.runId, hash8) } : undefined,
     trace,
     delivered: done ? {
@@ -271,7 +284,8 @@ export function designView(ledger: Ledger) {
     }
   }
   const styleChecks = s.gates.filter((g) => g.gateId.startsWith("design.")).map((g) => ({ gateId: g.gateId, passed: g.passed, step: g.step, seq: g.seq }));
-  return { runId: ledger.runId, project: s.info.project, uiSize, inventory, styleChecks };
+  const levels = LEVELS.map((level) => ({ level, name: LEVEL_NAMES[level] }));
+  return { runId: ledger.runId, project: s.info.project, levels, uiSize, inventory, styleChecks };
 }
 
 const nameOf = (c: { key: string; exports: string[] }) => c.exports[0] ?? c.key.split("/").pop()!;
