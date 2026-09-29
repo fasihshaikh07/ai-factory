@@ -18,3 +18,8 @@ export function uiSizeCardLine(size: SizeResult): string | undefined {
   const why = size.reasons.filter((r) => r.startsWith(size.name)).slice(0, 2).map((r) => r.slice(size.name.length + 2)).join("; ");
   return `UI size: **${size.name}** (${why}). Design work: ${size.work}.`;
 }
+
+/** For the approval step: the card line from the run's snapshot and the plan's files; never throws. */
+export function uiSizeForCard(snapshot: { root: string; files: string[] }, planFiles: string[]): string | undefined {
+  try { return uiSizeCardLine(planUiSize(snapshot.root, snapshot.files, planFiles)); } catch { return undefined; }
+}
