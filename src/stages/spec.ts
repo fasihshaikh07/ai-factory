@@ -11,6 +11,7 @@ import { isConfigIntegrityPath } from "../gates/protected.js";
 import { runGate } from "../gates/engine.js";
 import { hashJson } from "../util/hash.js";
 import { header, readOutput, requireOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
+import { acOwners } from "./build.js";
 import { clarifications, type ClarifyResult } from "./clarify.js";
 import { CriticOut } from "./specpipe.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
@@ -177,7 +178,13 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
     `## Plan`,
     `Options: ${a.plan.options.map((o) => `${o.id}${o.id === a.plan.chosen ? " (chosen)" : ""}: ${o.summary}`).join(" | ")}`,
     `Decision: ${a.plan.adr}`,
-    ...a.plan.tasks.map((t) => `- ${t.id} ${t.title} → ${t.reqs.join(", ")}`),
+    ...(() => {
+      const owners = acOwners(a.plan, a.spec);
+      return a.plan.tasks.map((t) => {
+        const acs = [...owners.entries()].filter(([, o]) => o === t.id).map(([ac]) => ac);
+        return `- ${t.id} ${t.title} → ${t.reqs.join(", ")}${acs.length ? `; must pass ${acs.join(", ")}` : "; builds towards a later task (no criteria of its own)"}`;
+      });
+    })(),
     ...(a.plan.stubs.length ? [``, `Stub commit (throws NotImplemented until implemented): ${a.plan.stubs.map((s) => s.path).join(", ")}`] : []),
     ``,
     `## Critic findings (${a.critic.findings.length})`,

@@ -282,8 +282,18 @@ function secretScanOf(diff: DiffSummary, commit: string) {
   return { kind: "secrets" as const, commit, hits: diff.files.flatMap((f) => scanText(f.path, f.added.join("\n"))) };
 }
 
-function acIdsFor(spec: Spec, reqs: string[]): string[] {
-  return spec.requirements.filter((r) => reqs.includes(r.id)).flatMap((r) => r.acceptance.map((a) => a.id));
+/**
+ * Each acceptance criterion belongs to exactly one task: the LAST task (in plan order) that works on
+ * its requirement. Earlier tasks that touch the same requirement build towards it but aren't held to
+ * its tests yet, so a requirement split over two tasks doesn't make task 1 impossible.
+ */
+export function acOwners(plan: { tasks: { id: string; reqs: string[] }[] }, spec: Pick<Spec, "requirements">): Map<string, string> {
+  const owners = new Map<string, string>();
+  for (const r of spec.requirements) {
+    const owner = [...plan.tasks].reverse().find((t) => t.reqs.includes(r.id));
+    if (owner) for (const a of r.acceptance) owners.set(a.id, owner.id);
+  }
+  return owners;
 }
 
 /** Run gates; classify for the ladder: safety > locked-test > other. */
@@ -331,8 +341,8 @@ export function implementStep(taskId: string): StepDef {
         await resetHard(wt, start);
       }
       const { model, effort } = modelFor(ctx.project, "implement", ctx.rung);
-      const acIds = acIdsFor(spec, task.reqs);
-      const myTests = lock.tests.filter((t) => acIds.includes(t.acId));
+      const owners = acOwners(plan, spec);
+      const myTests = lock.tests.filter((t) => owners.get(t.acId) === task.id);
       const rt = runtime();
       await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
       await ensureAgentImage(rt, ctx.project.dotnet.sdkImage);
@@ -381,7 +391,9 @@ export function implementStep(taskId: string): StepDef {
       if (diffGated) return failed(diffGated);
       // 2. only then build and run the tests on that exact commit
       const produced = await produce(ctx, `${key}/${ctx.attempt}`, commit, "task", {
-        expectPass: myTests.map((t) => t.testId), expectFail: [], compareToBaseline: baseline.results.map((b) => b.id),
+        // must pass: this task's own criteria + the characterisation tests (behaviour that must not change)
+        expectPass: [...myTests.map((t) => t.testId), ...lock.characterisation.map((c) => c.testId)],
+        expectFail: [], compareToBaseline: baseline.results.map((b) => b.id),
       });
       const run = storeRun(ctx, produced);
       const gated = await gateAll(ctx, key, commit, [[testExpectations, { run: run.testRun, baseline: baselineSha }]]);

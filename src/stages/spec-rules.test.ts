@@ -108,3 +108,16 @@ describe("deliver targets", () => {
     expect(() => assertDeliverable(ProjectConfig.parse(base))).not.toThrow();
   });
 });
+
+describe("acceptance criteria ownership", () => {
+  it("gives each criterion to the last task that works on its requirement", async () => {
+    const { acOwners } = await import("./build.js");
+    const req = (id: string, acs: string[]) => ({ id, ears: "", op: "ADDED" as const, sources: [], acceptance: acs.map((a) => ({ id: a, given: "", when: "", then: "", level: "api" as const })) });
+    const spec = { requirements: [req("REQ-1", ["AC-1.1", "AC-1.2"]), req("REQ-2", ["AC-2.1"])] };
+    const plan = { tasks: [{ id: "TASK-1", reqs: ["REQ-1"] }, { id: "TASK-2", reqs: ["REQ-1", "REQ-2"] }] };
+    const o = acOwners(plan, spec);
+    expect([...o.entries()]).toEqual([["AC-1.1", "TASK-2"], ["AC-1.2", "TASK-2"], ["AC-2.1", "TASK-2"]]);
+    // TASK-1 owns nothing: it must only keep characterisation tests and the baseline green
+    expect([...o.values()].includes("TASK-1")).toBe(false);
+  });
+});
