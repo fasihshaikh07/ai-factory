@@ -394,8 +394,7 @@ export function retryMode(prev: PrevAttempt | undefined, rung: number): { mode: 
   if (prev.interrupted) return { mode: "reset", reason: "the previous attempt didn't finish" };
   if (prev.rung !== rung) return { mode: "reset", reason: `moved from rung ${prev.rung} to rung ${rung}` };
   if (!prev.checks.length) return { mode: "reset", reason: "no failures to fix" };
-  // a failed build runs no tests, so its "didn't run" failures come with it
-  const bad = [...new Set(prev.checks.filter((c) => !KEEPABLE.has(c) && !(c === "locked-not-executed" && prev.checks.includes("build"))))];
+  const bad = [...new Set(prev.checks.filter((c) => !KEEPABLE.has(c)))];
   if (bad.length) return { mode: "reset", reason: `the previous attempt failed on ${bad.join(", ")}` };
   return { mode: "keep", reason: `the previous attempt failed only on ${[...new Set(prev.checks)].join(", ")}` };
 }
@@ -419,10 +418,14 @@ export function implementStep(taskId: string): StepDef {
     inputs: (s) => {
       if (s.steps.get("author-tests")?.status !== "completed") return undefined;
       const plan = s.steps.get("plan")!.outputs[0];
-      // taskStartSha: the previous task's commit, or the tests commit
-      const prev = [...s.steps.values()].filter((r) => r.step.startsWith("implement/") && r.status === "completed" && r.step !== key);
-      const start = prev.length ? String(prev[prev.length - 1]!.data?.commit) : String(s.steps.get("author-tests")!.data!.commit);
-      return { plan, tests: s.steps.get("author-tests")!.outputs[0], taskStartSha: start, prevDone: prev.map((p) => p.step) };
+      // taskStartSha: the previous task's commit (plan order), or the tests commit. Only EARLIER tasks count:
+      // a later task finishing mustn't change this task's inputs (that re-ran finished tasks forever).
+      const order = (s.steps.get("plan")!.data?.tasks as string[] | undefined) ?? [];
+      const prevDone = order.slice(0, Math.max(0, order.indexOf(taskId))).map((t) => `implement/${t}`);
+      if (prevDone.some((k) => s.steps.get(k)?.status !== "completed")) return undefined;
+      const last = prevDone.at(-1);
+      const start = last ? String(s.steps.get(last)!.data?.commit) : String(s.steps.get("author-tests")!.data!.commit);
+      return { plan, tests: s.steps.get("author-tests")!.outputs[0], taskStartSha: start, prevDone };
     },
     async run(ctx) {
       const plan = requireOutput<Plan>(ctx.state, ctx.ledger, "plan");
@@ -517,7 +520,7 @@ export function implementStep(taskId: string): StepDef {
         expectFail: [], compareToBaseline: baseline.results.map((b) => b.id),
       });
       const run = storeRun(ctx, produced);
-      // a failed build runs no tests: "didn't run" then isn't a regression, it's the build
+      // a failed build marks every expected test "Build failed": that's the build, not a regression
       const gated = await gateAll(ctx, key, commit, [[testExpectations, { run: run.testRun, baseline: baselineSha }]], produced.build.ok ? earlier : undefined);
       if (gated) {
         if (!produced.build.ok) gated.failures.unshift(...produced.build.errors.slice(0, 10).map((e) => failure("build", `${e.file}:${e.line} ${e.code} ${e.msg}`)));

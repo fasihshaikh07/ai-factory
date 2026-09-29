@@ -34,7 +34,7 @@ describe("retry: keep the previous attempt's code or reset", () => {
 
   it("keeps when only behaviour or the build was wrong, at the same rung", () => {
     expect(mode(["locked-failed"])).toBe("keep");
-    expect(mode(["build", "locked-not-executed", "locked-not-executed"])).toBe("keep");
+    expect(mode(["build", "locked-failed", "locked-failed"])).toBe("keep");
     expect(mode(["regression"])).toBe("keep");
     expect(mode(["new-failure", "locked-flaky"], 1, { rung: 1 })).toBe("keep");
     expect(retryMode(prev(["locked-failed"]), 0).reason).toMatch(/failed only on locked-failed/);
