@@ -1,6 +1,6 @@
 // Build side of the brownfield slice (stages-aligned §1): discover/baseline → stub commit →
 // author-tests (fails on base twice → lock) → implement ⟲ task verify → integrate → accept.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import type { Failure, PlanBody, SpecDraft, TestRun } from "../contracts/index.js";
@@ -48,6 +48,23 @@ async function produce(ctx: StepContext, key: string, commit: string, stage: Tes
     onContainer: async (id, role) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role } }, ctx.writer); },
     onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
   });
+}
+
+/**
+ * The coding container reads restored packages from the run's package folder (read-only, no network).
+ * If discover reused a cached baseline, nothing restored them yet for this run: do it now.
+ */
+async function ensurePackages(ctx: StepContext, commit: string): Promise<void> {
+  const dir = packagesDir(ctx.runId);
+  if (readdirSync(dir).length) return;
+  ctx.log("restoring packages for the coding container");
+  const out = await produceDotnetTests({
+    runId: ctx.runId, key: "restore", repo: ctx.state.info.repoPath!, commit, stage: "task",
+    exp: { expectPass: [], expectFail: [], compareToBaseline: [] }, project: ctx.project, rt: runtime(), packagesDir: dir, restoreOnly: true,
+    onContainer: async (id, role) => { await ctx.ledger.append({ type: "container.started", key: "restore", data: { id, role } }, ctx.writer); },
+    onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key: "restore", data: { id } }, ctx.writer); },
+  });
+  if (!out.build.ok) throw new Error(`Package restore failed: ${out.logs.restore.split("\n").slice(-5).join(" ")}`);
 }
 
 function storeRun(ctx: StepContext, out: ProduceOutput): { testRun: string; build: string; reports: string[] } {
@@ -155,6 +172,7 @@ export const authorTestsStep: StepDef = {
     const rt = runtime();
     await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
     await ensureAgentImage(rt, ctx.project.dotnet.sdkImage);
+    await ensurePackages(ctx, start);
     // The test author sees ACs, stub signatures and harness rules. Never the plan's approach.
     const acs = spec.requirements.flatMap((r) => r.acceptance.map((a) => ({ req: r.id, ...a })));
     const pack = buildPack({

@@ -33,6 +33,8 @@ export interface ProduceInput {
   packagesDir?: string;
   /** A raw `dotnet test --filter` expression (used to find tests by method name). */
   filterExpr?: string;
+  /** Only restore packages into packagesDir (for the coding container); no build or tests. */
+  restoreOnly?: boolean;
 }
 
 export interface ProduceOutput {
@@ -117,6 +119,11 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
     const rCode = await rt.wait(r, project.dotnet.buildTimeoutSec * 1000);
     logs.restore = await rt.logs(r);
     await finish(r);
+    if (inp.restoreOnly) {
+      const build: BuildRun = { kind: "build", ok: rCode === 0, errors: rCode === 0 ? [] : [{ file: "", line: 0, code: "RESTORE", msg: `dotnet restore failed (exit ${rCode ?? "timeout"})` }] };
+      const testRun = buildTestRun({ treeSha: inp.commit, stage: inp.stage, toolVersions, exp: inp.exp, raw: { reports: [], results: [], discovered: [], exitCode: rCode ?? 124, buildFailed: rCode !== 0 }, probeOk: () => true });
+      return { testRun, build, reports: [], logs };
+    }
 
     // build, no network
     let build: BuildRun = { kind: "build", ok: false, errors: [] };

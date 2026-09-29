@@ -78,9 +78,13 @@ export function next(state: RunState, ledger: Ledger, project: ProjectConfig): N
 
 /** Failed attempts of a step since it last completed (a changed input starts a fresh ladder). */
 function attemptHistory(ledger: Ledger, step: string): AttemptRecord[] {
-  const evs = ledger.events().filter((e) => e.key && splitKey(e.key).step === step);
+  const all = ledger.events();
+  const evs = all.filter((e) => e.key && splitKey(e.key).step === step);
   const lastDone = Math.max(-1, ...evs.filter((e) => e.type === "step.completed").map((e) => e.seq));
-  return evs.filter((e) => e.type === "step.failed" && e.seq > lastDone && !(e.data as { parked?: boolean })?.parked)
+  // a human raising the attempt limit starts the ladder fresh
+  const lastRaise = Math.max(-1, ...all.filter((e) => e.type === "human.decided" && (e.data as { decision?: string; extraAttempts?: number })?.decision === "raise-cap" && typeof (e.data as { extraAttempts?: number }).extraAttempts === "number").map((e) => e.seq));
+  const since = Math.max(lastDone, lastRaise);
+  return evs.filter((e) => e.type === "step.failed" && e.seq > since && !(e.data as { parked?: boolean })?.parked)
     .map((e) => e.data as unknown as AttemptRecord);
 }
 
@@ -189,7 +193,7 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
           const rec2: AttemptRecord = { category: outcome.category, signature: outcome.signature ?? sha256(JSON.stringify(outcome.failures)).slice(0, 16), diffSha: outcome.diffSha, rung, lockedFailedIds: outcome.lockedFailedIds };
           const backoffSpent = history.reduce((n2, h) => n2 + Number((h as { waitMs?: number }).waitMs ?? 0), 0);
           const action: LadderAction = nextOnFailure([...history, rec2], {
-            ...DEFAULT_LADDER, availableRungs: availableRungs(project, n.step.stage, policy.localOnly), backoffSpentMs: backoffSpent, a5Done: new Set(),
+            ...DEFAULT_LADDER, maxAttempts: DEFAULT_LADDER.maxAttempts + state.capOverrides.extraAttempts, availableRungs: availableRungs(project, n.step.stage, policy.localOnly), backoffSpentMs: backoffSpent, a5Done: new Set(),
           });
           const failuresSha = ledger.putJson(outcome.failures.slice(0, 20));
           await ledger.append({

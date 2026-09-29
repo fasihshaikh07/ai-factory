@@ -181,3 +181,19 @@ describe("audit fixes: cost cap inputs", () => {
     expect(checkCaps(replay(l.events()))).toBeUndefined(); // L cap is $20
   });
 });
+
+describe("raising a cap", () => {
+  it("lets a parked run continue under the new limit", async () => {
+    const l = Ledger.create("run-raise");
+    await l.append({ type: "run.created", data: { mode: "brownfield", project: "p", runId: "run-raise" } }, HUMAN_WRITER);
+    await l.append({ type: "step.started", key: "intake/1" }, HUMAN_WRITER);
+    await l.append({ type: "step.completed", key: "intake/1", data: { changeClass: "bugfix" } }, HUMAN_WRITER);
+    await l.append({ type: "usage", data: { "gen_ai.usage.cost_usd": 6 } }, HUMAN_WRITER);
+    expect(checkCaps(replay(l.events()))).toMatch(/raise-cap run-raise --cost/);
+    await l.append({ type: "human.decided", data: { cardId: "caps", decision: "raise-cap", by: "ahsan", artifactSha: "", costUsd: 12 } }, HUMAN_WRITER);
+    const s = replay(l.events());
+    expect(checkCaps(s)).toBeUndefined();
+    expect(s.decisions).toHaveLength(0); // not a waiver: doesn't count toward the waiver limit
+    expect(s.waivers).toBe(0);
+  });
+});

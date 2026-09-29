@@ -20,16 +20,19 @@ export function wallClockCapMs(complexity: Complexity | undefined): number {
 }
 
 export function checkCaps(state: RunState): string | undefined {
-  const cap = costCapUsd(state.info.changeClass, state.info.complexity);
-  if (state.costUsd >= cap) return `Cost cap reached: $${state.costUsd.toFixed(2)} of $${cap}`;
-  if (state.activeMs >= wallClockCapMs(state.info.complexity)) {
-    return `Wall-clock cap reached: ${Math.round(state.activeMs / 60_000)} min active`;
+  const o = state.capOverrides;
+  const cap = o.costUsd ?? costCapUsd(state.info.changeClass, state.info.complexity);
+  const raise = ` Raise it with: factory raise-cap ${state.info.runId}`;
+  if (state.costUsd >= cap) return `Cost cap reached: $${state.costUsd.toFixed(2)} of $${cap}.${raise} --cost <dollars>`;
+  const wall = o.wallMinutes !== undefined ? o.wallMinutes * 60_000 : wallClockCapMs(state.info.complexity);
+  if (state.activeMs >= wall) {
+    return `Wall-clock cap reached: ${Math.round(state.activeMs / 60_000)} min active.${raise} --minutes <n>`;
   }
   if (state.waivers > MAX_WAIVERS) return `More than ${MAX_WAIVERS} waivers in this run`;
   if (state.rejections >= MAX_REJECTIONS) return `Rejected ${state.rejections} times; let's talk before trying again`;
   for (const r of state.steps.values()) {
-    if (r.attempts >= MAX_ATTEMPTS_PER_TASK && r.status !== "completed") {
-      return `${r.step} used ${r.attempts} attempts`;
+    if (r.attempts >= MAX_ATTEMPTS_PER_TASK + o.extraAttempts && r.status !== "completed") {
+      return `${r.step} used ${r.attempts} attempts.${raise} --attempts <n>`;
     }
     if (r.interruptions >= MAX_INTERRUPTIONS && r.status !== "completed") {
       return `${r.step} was interrupted ${r.interruptions} times; something in the environment is wrong`;

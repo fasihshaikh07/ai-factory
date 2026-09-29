@@ -80,6 +80,8 @@ export interface RunState {
   workspace?: { path: string; branch: string };
   lastSeq: number;
   flags: { pauseRequested: boolean; stopRequested: boolean };
+  /** Limits a human raised after a park (factory raise-cap). */
+  capOverrides: { costUsd?: number; wallMinutes?: number; extraAttempts: number };
   sinks: Map<string, { intentSeq: number; externalId?: string }>;
 }
 
@@ -101,6 +103,7 @@ export function replay(events: LedgerEvent[]): RunState {
     lastSeq: first.seq,
     flags: { pauseRequested: false, stopRequested: false },
     sinks: new Map(),
+    capOverrides: { extraAttempts: 0 },
   };
 
   const rec = (step: StepKey): StepRecord => {
@@ -179,6 +182,13 @@ export function replay(events: LedgerEvent[]): RunState {
         break;
       case "human.decided": {
         const dec = { ...(data as unknown as Omit<Decision, "seq">), seq: ev.seq };
+        if (dec.decision === "raise-cap") {
+          const d2 = data as { costUsd?: number; wallMinutes?: number; extraAttempts?: number };
+          if (typeof d2.costUsd === "number") s.capOverrides.costUsd = d2.costUsd;
+          if (typeof d2.wallMinutes === "number") s.capOverrides.wallMinutes = d2.wallMinutes;
+          if (typeof d2.extraAttempts === "number") s.capOverrides.extraAttempts += d2.extraAttempts;
+          break;
+        }
         s.decisions.push(dec);
         if (dec.decision === "waive") s.waivers += 1;
         if (dec.decision === "reject") s.rejections += 1;

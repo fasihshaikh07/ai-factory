@@ -103,6 +103,31 @@ program.command("answer").argument("<run>").argument("<hash>", "first characters
     if (r.kind === "recorded") await runAndReport(l.runId);
   });
 
+program.command("raise-cap").argument("<run>")
+  .option("--cost <dollars>", "new cost limit for this run, in USD")
+  .option("--minutes <n>", "new active-time limit, in minutes")
+  .option("--attempts <n>", "extra attempts per step (the retry ladder starts again)")
+  .description("raise a limit that parked the run, then continue (terminal only)")
+  .action(async (run: string, o: { cost?: string; minutes?: string; attempts?: string }) => {
+    assertTty();
+    const data: Record<string, number> = {};
+    const num = (v: string | undefined, name: string) => {
+      if (v === undefined) return undefined;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n <= 0) throw new DecisionError(`--${name} must be a positive number`);
+      return n;
+    };
+    const cost = num(o.cost, "cost"), minutes = num(o.minutes, "minutes"), attempts = num(o.attempts, "attempts");
+    if (cost !== undefined) data.costUsd = cost;
+    if (minutes !== undefined) data.wallMinutes = minutes;
+    if (attempts !== undefined) data.extraAttempts = Math.round(attempts);
+    if (!Object.keys(data).length) throw new DecisionError("Give at least one of --cost, --minutes, --attempts");
+    const l = openRun(run);
+    await l.append({ type: "human.decided", data: { cardId: "caps", decision: "raise-cap", by: userInfo().username, artifactSha: "", ...data } }, HUMAN_WRITER);
+    log(`Limits raised (${Object.entries(data).map(([k, v]) => `${k} ${v}`).join(", ")}). Continuing…`);
+    await runAndReport(l.runId);
+  });
+
 for (const c of ["pause", "stop"] as const) {
   program.command(c).argument("<run>").description(`${c} a run at the next step boundary`).action(async (run: string) => {
     const l = openRun(run);
