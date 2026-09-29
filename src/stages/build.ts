@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import type { Failure, PlanBody, SpecDraft, TestRun } from "../contracts/index.js";
+import type { Failure, LedgerEvent, PlanBody, SpecDraft, TestRun } from "../contracts/index.js";
 import { scanText } from "../context/secrets.js";
 import { failure, runGate, type GateDef } from "../gates/engine.js";
 import {
@@ -27,6 +27,7 @@ import { modelFor } from "./routing.js";
 import { family } from "../runners/types.js";
 import { S } from "./think.js";
 import { ensureWorktree, runtime, snapshotFor } from "./workspace.js";
+import { splitKey } from "../ledger/state.js";
 
 type Plan = z.infer<typeof PlanBody> & { complexity: string };
 type Spec = z.infer<typeof SpecDraft>;
@@ -310,6 +311,10 @@ export async function diffSummary(wt: string, from: string, to: string, lock: Lo
   return { from, to, files: out, lockedNow };
 }
 
+async function isAncestor(wt: string, a: string, b: string): Promise<boolean> {
+  try { await git(wt, ["merge-base", "--is-ancestor", a, b]); return true; } catch { return false; }
+}
+
 function secretScanOf(diff: DiffSummary, commit: string) {
   return { kind: "secrets" as const, commit, hits: diff.files.flatMap((f) => scanText(f.path, f.added.join("\n"))) };
 }
@@ -374,6 +379,39 @@ async function gateAll(ctx: StepContext, step: string, treeSha: string, gates: [
   return { failures, category: safety || evidence ? "safety" : lockedFailedIds.length ? "locked-test" : "other", lockedFailedIds };
 }
 
+/** Failures that leave the previous attempt's code worth building on: only behaviour (or the build) was wrong. */
+const KEEPABLE = new Set(["build", "locked-failed", "locked-flaky", "regression", "new-failure"]);
+
+export interface PrevAttempt { checks: string[]; rung: number; interrupted: boolean; commit?: string }
+
+/**
+ * Keep the previous attempt's code for this retry, or start again from the task's start commit.
+ * Keep only after a recorded failure of keepable checks at the same rung: a move up the ladder
+ * starts fresh so a stronger model isn't anchored on a weaker model's approach.
+ */
+export function retryMode(prev: PrevAttempt | undefined, rung: number): { mode: "keep" | "reset"; reason: string } {
+  if (!prev) return { mode: "reset", reason: "no previous attempt" };
+  if (prev.interrupted) return { mode: "reset", reason: "the previous attempt didn't finish" };
+  if (prev.rung !== rung) return { mode: "reset", reason: `moved from rung ${prev.rung} to rung ${rung}` };
+  if (!prev.checks.length) return { mode: "reset", reason: "no failures to fix" };
+  // a failed build runs no tests, so its "didn't run" failures come with it
+  const bad = [...new Set(prev.checks.filter((c) => !KEEPABLE.has(c) && !(c === "locked-not-executed" && prev.checks.includes("build"))))];
+  if (bad.length) return { mode: "reset", reason: `the previous attempt failed on ${bad.join(", ")}` };
+  return { mode: "keep", reason: `the previous attempt failed only on ${[...new Set(prev.checks)].join(", ")}` };
+}
+
+/** The last attempt of `step` since it last completed: how it ended, its rung and commit. `checks` from its failures. */
+export function previousAttempt(events: LedgerEvent[], step: string, checks: string[]): PrevAttempt | undefined {
+  const evs = events.filter((e) => e.key && splitKey(e.key).step === step);
+  const lastDone = Math.max(-1, ...evs.filter((e) => e.type === "step.completed").map((e) => e.seq));
+  const end = evs.filter((e) => e.seq > lastDone && (e.type === "step.failed" || e.type === "step.interrupted")).at(-1);
+  if (!end) return undefined;
+  const d = (end.data ?? {}) as { rung?: number; parked?: boolean; commit?: string };
+  return { checks, rung: Number(d.rung ?? 0), interrupted: end.type === "step.interrupted" || !!d.parked, commit: d.commit };
+}
+
+const PREV_CHANGE_CAP = 40_000;
+
 export function implementStep(taskId: string): StepDef {
   const key = `implement/${taskId}`;
   return {
@@ -395,12 +433,28 @@ export function implementStep(taskId: string): StepDef {
       const inputs = implementStep(taskId).inputs(ctx.state, ctx.ledger)!;
       const start = String(inputs.taskStartSha);
       const wt = await ensureWorktree(ctx, start);
-      // fresh attempt from a clean commit; the previous attempt's diff is saved first
-      if ((await headSha(wt)) !== start || (await git(wt, ["status", "--porcelain"])).stdout.trim()) {
+      // keep the previous attempt's code, or start fresh from a clean commit (its diff saved first)
+      const prev = previousAttempt(ctx.ledger.events(), key, ctx.priorFailures.map((f) => f.check));
+      let mode = retryMode(prev, ctx.rung);
+      const head = await headSha(wt);
+      const dirty = !!(await git(wt, ["status", "--porcelain"])).stdout.trim();
+      if (mode.mode === "keep" && (dirty || head === start || (prev?.commit && prev.commit !== head) || !(await isAncestor(wt, start, head)))) {
+        mode = { mode: "reset", reason: "the worktree isn't at the previous attempt's commit" };
+      }
+      let prevChange: string | undefined;
+      if (mode.mode === "keep") {
+        prevChange = (await git(wt, ["diff", "--no-color", start, head])).stdout;
+        const saved = ctx.ledger.putArtifact(prevChange);
+        // files stay; HEAD goes back to the start so the task still ends as one commit
+        await git(wt, ["reset", "--mixed", "-q", start]);
+        await git(wt, ["clean", "-fdX"]);
+        ctx.log(`implement ${taskId}: keeping previous attempt's code (${mode.reason}; diff ${saved.slice(0, 8)})`);
+      } else if (head !== start || dirty) {
         const saved = ctx.ledger.putArtifact(await diffIncludingUntracked(wt, start));
-        ctx.log(`implement ${taskId}: saved previous attempt's diff (${saved.slice(0, 8)}) and reset`);
+        ctx.log(`implement ${taskId}: saved previous attempt's diff (${saved.slice(0, 8)}) and reset (${mode.reason})`);
         await resetHard(wt, start);
       }
+      const retry = { retryMode: mode.mode, retryReason: mode.reason };
       const { model, effort } = modelFor(ctx.project, "implement", ctx.rung);
       const owners = acOwners(plan, spec);
       const myTests = lock.tests.filter((t) => owners.get(t.acId) === task.id);
@@ -421,8 +475,12 @@ export function implementStep(taskId: string): StepDef {
           S.artifact("acs", "acceptance-criteria", spec.requirements.filter((r) => task.reqs.includes(r.id))),
           S.artifact("tests", "locked-tests", myTests),
           S.pointers([...task.fileScope.map((p) => ({ path: p, reason: "you may change this" })), ...task.exemplars.map((p) => ({ path: p, reason: "follow this style" })), ...myTests.map((t) => ({ path: t.file, reason: `locked test for ${t.acId}; read, don't edit` }))]),
+          ...(prevChange !== undefined ? [{ spec: { id: "previous-change", source: "artifact" as const, trust: "derived" as const, placement: "user" as const }, artifactKind: "diff",
+            content: "Your previous change (diff from the task start; it is already in the files):\n" + (prevChange.length > PREV_CHANGE_CAP ? prevChange.slice(0, PREV_CHANGE_CAP) + `\n… (diff cut at ${PREV_CHANGE_CAP / 1000} KB; read the files for the rest)` : prevChange) }] : []),
           ...(ctx.priorFailures.length ? [{ spec: { id: "failures", source: "feedback" as const, trust: "derived" as const, placement: "user" as const }, content: ctx.priorFailures.slice(0, 20).map((f) => `- [${f.check}] ${f.message}${f.frames.length ? `\n    ${f.frames.join("\n    ")}` : ""}`).join("\n") }] : []),
-          S.task(`Implement ${task.id}: ${task.title}.${ctx.priorFailures.length ? " The previous attempt failed; the failures are above." : ""}`),
+          S.task(`Implement ${task.id}: ${task.title}.${prevChange !== undefined
+            ? " The previous attempt failed; the failures are above. Its code is still in the files: fix the failures by editing that change, don't rewrite it."
+            : ctx.priorFailures.length ? " The previous attempt failed; the failures are above." : ""}`),
           S.recap(["only the file scope", "don't touch tests", "no new packages", "return done=true when finished"]),
         ],
       });
@@ -434,7 +492,7 @@ export function implementStep(taskId: string): StepDef {
       }).run({ step: "implement", model, effort, pack, schema: ImplementOut, limits: { maxTurns: 80, maxUsd: 4, timeoutSec: 45 * 60 }, workdir: wt });
       await ctx.usage({ model, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, cacheRead: r.usage.cacheRead, cacheWrite: r.usage.cacheWrite, turns: r.usage.turns, wallMs: r.usage.wallMs, estUsd: r.usage.estUsd });
       if (r.status === "config-error") return { kind: "park", reason: r.error ?? "The API rejected the coding agent's request" };
-    if (r.status !== "ok") return { kind: "fail", category: r.status === "rate-limited" ? "rate-limit" : "other", failures: [failure(`agent-${r.status}`, r.error ?? r.status)], signature: `implement:${r.status}` };
+      if (r.status !== "ok") return { kind: "fail", category: r.status === "rate-limited" ? "rate-limit" : "other", failures: [failure(`agent-${r.status}`, r.error ?? r.status)], signature: `implement:${r.status}`, data: retry };
 
       // core commits (the agent has no git), then the producer judges that exact commit
       const commit = await commitAll(wt, `factory: ${task.id} ${task.title}`);
@@ -442,7 +500,7 @@ export function implementStep(taskId: string): StepDef {
       const diffSha = ctx.ledger.putJson(diff);
       const baseline = ctx.ledger.getJson<TestRun>(baselineSha);
       const failed = (g: NonNullable<Awaited<ReturnType<typeof gateAll>>>) =>
-        ({ kind: "fail" as const, category: g.category, failures: g.failures.slice(0, 20), signature: failureSignature(g.failures.map((f) => `${f.check}:${f.testId ?? f.message}`)), diffSha: sha256(JSON.stringify(diff.files)), lockedFailedIds: g.lockedFailedIds });
+        ({ kind: "fail" as const, category: g.category, failures: g.failures.slice(0, 20), signature: failureSignature(g.failures.map((f) => `${f.check}:${f.testId ?? f.message}`)), diffSha: sha256(JSON.stringify(diff.files)), lockedFailedIds: g.lockedFailedIds, data: { ...retry, commit } });
       // 1. the diff checks first: a change that touches locked tests, protected files or secrets never gets run
       const diffGated = await gateAll(ctx, key, commit, [
         [lockSetUnchanged, { diff: diffSha, tests: ctx.state.steps.get("author-tests")!.outputs[0]! }],
@@ -465,7 +523,7 @@ export function implementStep(taskId: string): StepDef {
         if (!produced.build.ok) gated.failures.unshift(...produced.build.errors.slice(0, 10).map((e) => failure("build", `${e.file}:${e.line} ${e.code} ${e.msg}`)));
         return failed(gated);
       }
-      return { kind: "done", outputs: { diff: diffSha, testRun: run.testRun }, treeSha: commit, data: { commit } };
+      return { kind: "done", outputs: { diff: diffSha, testRun: run.testRun }, treeSha: commit, data: { commit, ...retry } };
     },
   };
 }

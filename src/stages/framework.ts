@@ -15,7 +15,8 @@ export type StepOutcome =
   /** A human card was written; the executor exits. */
   /** extra: small metadata stored on human.requested (e.g. where the pending work is cached). */
   | { kind: "wait"; card: { cardId: string; kind: string; artifactSha: string; markdown: string; deadline?: string; defaultDecision?: Record<string, unknown>; extra?: Record<string, unknown> } }
-  | { kind: "fail"; category: FailureCategory; failures: Failure[]; signature?: string; diffSha?: string; lockedFailedIds?: string[] }
+  /** data: small metadata stored on step.failed (e.g. the commit judged, how the attempt started). */
+  | { kind: "fail"; category: FailureCategory; failures: Failure[]; signature?: string; diffSha?: string; lockedFailedIds?: string[]; data?: Record<string, unknown> }
   | { kind: "park"; reason: string }
   /** Run ends without delivery (e.g. not-reproduced). */
   | { kind: "close"; reason: "not-reproduced" | "stopped" };
