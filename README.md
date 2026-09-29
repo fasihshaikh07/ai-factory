@@ -362,6 +362,9 @@ factory smoke --project shop-api
 
 ```bash
 factory start "what you want changed, in plain words" --project shop-api --max-cost 5
+# or from a file, or from a Jira ticket:
+factory start --file request.md --project shop-api --max-cost 5
+factory start --jira SHOP-412 --project shop-api --max-cost 5
 factory logs <run> --follow        # in a second terminal
 ```
 
@@ -396,7 +399,11 @@ factory show-card <run> --pr       # paste this as the PR description
 | `factory init <repo>` | Adds a project: copies the repo into Linux if needed, detects settings, writes the config. |
 | `factory mcp` | Runs the MCP server for Claude Code (registered by setup). |
 | `factory baseline --project <p>` | Builds and tests the untouched repo in the test lab. No AI. |
-| `factory start "<request>" --project <p> [--max-cost <usd>]` | Creates a run and executes until a card, a park or delivery. `--max-cost` lowers this run's spend limit. |
+| `factory start "<request>" --project <p> [--max-cost <usd>]` | Creates a run and executes until a card, a park or delivery. `--max-cost` lowers this run's spend limit: at that amount the run stops and asks you. |
+| `factory start --file request.md --project <p>` | Same, with the request from a Markdown or text file. |
+| `factory start --jira ABC-123 --project <p>` | Same, with the request from a Jira ticket (key or link): summary, description and latest comments. Needs Jira set up in `~/.factory/.env`. |
+
+The request can come from **any one** of a typed prompt, `--file` or `--jira`, or several at once (they're combined into one request, each part labelled). Up to about 25 KB of text in total; more is refused before anything is spent.
 | `factory status [run]` | All recent runs, or one run's steps, cost and open card. |
 | `factory show-card <run> [--pr]` | Prints the open card (or the PR text). |
 | `factory answer <run> <hash> Q-1=A …` | Answers a question card. Terminal only. |

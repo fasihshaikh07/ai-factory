@@ -12,6 +12,7 @@ import { assertTty, decide, DecisionError } from "../ledger/human.js";
 import { HUMAN_WRITER, Ledger } from "../ledger/ledger.js";
 import { replay, statusLabel } from "../ledger/state.js";
 import { createRun, execute } from "../stages/executor.js";
+import { describeSources, gatherRequest } from "../sources/request.js";
 import { checkRoutes } from "../stages/routing.js";
 import { findRuntimeBinary } from "../verify/runtime.js";
 import { factoryHome } from "../util/paths.js";
@@ -36,15 +37,23 @@ const program = new Command();
 program.name("factory").description("AI Factory: turns a request into a verified PR").version("0.1.0");
 
 program.command("start")
-  .argument("<prompt>", "what you want changed, in plain words")
+  .argument("[prompt]", "what you want changed, in plain words")
   .requiredOption("--project <name>", "project config in ~/.factory/projects/<name>.yaml")
+  .option("--file <path>", "the request as a Markdown or text file")
+  .option("--jira <key>", "the request as a Jira ticket (ABC-123 or its link)")
   .option("--max-cost <dollars>", "a lower spend limit for this run (it can only lower the normal limit)")
-  .description("create a run and execute until a card, a park, or delivery")
-  .action(async (prompt: string, o: { project: string; maxCost?: string }) => {
+  .description("create a run from a prompt, a file or a Jira ticket (any one, or several) and execute until a card, a park, or delivery")
+  .action(async (prompt: string | undefined, o: { project: string; maxCost?: string; file?: string; jira?: string }) => {
     const project = loadProject(o.project);
     const problems = checkRoutes(project);
     if (problems.length) throw new Error(`Setup problems:\n- ${problems.join("\n- ")}`);
-    const runId = await createRun(prompt, o.project, userInfo().username, o.maxCost !== undefined ? { maxCostUsd: Number(o.maxCost) } : {});
+    // everything is read before a run exists: a bad file or ticket costs nothing
+    const req = await gatherRequest({ prompt, file: o.file, jira: o.jira });
+    const runId = await createRun(req.text, o.project, userInfo().username, {
+      ...(o.maxCost !== undefined ? { maxCostUsd: Number(o.maxCost) } : {}),
+      sources: req.sources,
+    });
+    log(`run ${runId} (request from ${describeSources(req.sources)})`);
     log(`run ${runId}`);
     await runAndReport(runId);
   });
@@ -351,6 +360,8 @@ program.command("doctor").description("check this machine and the setup").action
   ok(existsSync(join(factoryHome(), ".env")), "~/.factory/.env exists", "create it yourself with your API keys (never paste keys into chat)");
   ok(hasSecret("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY set in ~/.factory/.env");
   log(`${hasSecret("OPENAI_API_KEY") ? "ok  " : "note"} OPENAI_API_KEY ${hasSecret("OPENAI_API_KEY") ? "set" : "not set: critic and review will use Claude (single family)"}`);
+  const { jiraConfigured } = await import("../sources/jira.js");
+  log(jiraConfigured() ? "ok   Jira set up (factory start --jira ABC-123)" : "note Jira not set up (optional): add JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN to ~/.factory/.env to use --jira");
   if (hasSecret("OPENAI_API_KEY")) {
     const { DEFAULT_ROUTES } = await import("../stages/routing.js");
     const gpt = [...new Set(Object.values(DEFAULT_ROUTES).map((r) => r.model).filter((m) => /^gpt|^o\d/.test(m)))];

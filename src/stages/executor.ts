@@ -1,8 +1,8 @@
 // The executor (run-manager §2.3, §2.5, §2.9): replay → next step → run → record → repeat,
 // until a human card, a park, delivery, or a stop/pause request. One executor per repo.
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { Failure, LedgerEvent } from "../contracts/index.js";
 import { loadProject, type ProjectConfig } from "../config/project.js";
 import { DEFAULT_POLICY, mergePolicy, type Policy } from "../gates/policy.js";
@@ -23,6 +23,7 @@ import type { StepContext, StepDef, StepOutcome } from "./framework.js";
 import { brownfieldSteps } from "./modes.js";
 import { availableRungs, routeFor } from "./routing.js";
 import { runtime } from "./workspace.js";
+import type { RequestSource } from "../sources/request.js";
 
 export type Log = (msg: string) => void;
 
@@ -51,8 +52,22 @@ export function assertDeliverable(project: ProjectConfig): void {
   }
 }
 
+export const MAX_REQUEST_FILE_BYTES = 100_000;
+
+/** `factory start --file`: read a request file (Markdown or text), refusing ones intake can't take. */
+export function readRequestFile(path: string): { text: string; name: string } {
+  if (!existsSync(path)) throw new Error(`No such file: ${path}`);
+  const size = statSync(path).size;
+  if (size > MAX_REQUEST_FILE_BYTES) {
+    throw new Error(`${basename(path)} is ${Math.round(size / 1000)} KB. The intake step reads about 25 KB; split the request or summarise it.`);
+  }
+  const text = readFileSync(path, "utf8").trim();
+  if (text.length < 10) throw new Error(`${basename(path)} is empty or too short to be a request.`);
+  return { text, name: basename(path) };
+}
+
 /** `factory start`: create the ledger. Execution happens in `execute`. */
-export async function createRun(request: string, projectName: string, operator: string, opts: { maxCostUsd?: number } = {}): Promise<string> {
+export async function createRun(request: string, projectName: string, operator: string, opts: { maxCostUsd?: number; requestFile?: string; sources?: RequestSource[] } = {}): Promise<string> {
   if (opts.maxCostUsd !== undefined && !(opts.maxCostUsd > 0)) throw new Error("--max-cost must be a positive number of dollars");
   const project = loadProject(projectName);
   assertSupportedPath(project.repo);
@@ -67,6 +82,8 @@ export async function createRun(request: string, projectName: string, operator: 
       mode: "brownfield", project: project.project, repoPath: project.repo, repoId: project.project,
       baseRef: project.baseBranch, baseCommit, request, requestSha, operator, versions: versions(),
       ...(opts.maxCostUsd !== undefined ? { maxCostUsd: opts.maxCostUsd } : {}),
+      ...(opts.requestFile ? { requestFile: opts.requestFile } : {}),
+      ...(opts.sources?.length ? { sources: opts.sources } : {}),
     },
   }, HUMAN_WRITER);
   return runId;

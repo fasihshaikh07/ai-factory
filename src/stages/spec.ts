@@ -14,6 +14,7 @@ import { header, planRejections, readOutput, requireOutput, type StepContext, ty
 import { acOwners } from "./build.js";
 import { clarifications, type ClarifyResult } from "./clarify.js";
 import { CriticOut } from "./specpipe.js";
+import { describeSources } from "../sources/request.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
 import { snapshotFor, toolsFor } from "./workspace.js";
 
@@ -36,6 +37,9 @@ export function ruleRisk(text: string): { risk: Risk; tags: string[] } {
 }
 
 const request = (ctx: Pick<StepContext, "state">) => ctx.state.info.request ?? "";
+/** "request.md + Jira ABC-12" (older runs: the file name only) */
+const requestFrom = (ctx: Pick<StepContext, "state">) => describeSources(ctx.state.info.sources) || ctx.state.info.requestFile || "";
+const jiraSource = (ctx: Pick<StepContext, "state">) => ctx.state.info.sources?.find((s) => s.kind === "jira");
 
 // ---------- intake ----------
 export const intakeStep: StepDef = {
@@ -52,13 +56,17 @@ ${UNTRUSTED_NOTE}
 - risk: low | medium | high. riskTags from: auth, payments, pii, migration, public-api.
 - rigor: "light" only for a small, low-risk change; else "full". touchesUi: true if a screen changes.
 - source: "cli".`),
-        S.untrusted("request", "cli", request(ctx)),
+        S.untrusted("request", jiraSource(ctx) ? "jira" : "cli", request(ctx)),
         S.task("Classify this request."),
       ],
     });
     if (!r.ok) return r.outcome;
     const rules = ruleRisk(request(ctx));
-    const intent = { ...r.output, source: "cli" as const, risk: maxRisk(r.output.risk, rules.risk), riskTags: [...new Set([...r.output.riskTags, ...rules.tags])] };
+    const jira = jiraSource(ctx);
+    const intent = {
+      ...r.output, source: jira ? ("ticket" as const) : ("cli" as const), ...(jira ? { sourceRef: jira.url } : {}),
+      risk: maxRisk(r.output.risk, rules.risk), riskTags: [...new Set([...r.output.riskTags, ...rules.tags])],
+    };
     const sha = ctx.ledger.putJson({ header: header(ctx.runId, "intent", "intake", "", r.model), ...intent });
     return { kind: "done", outputs: { intent: sha }, data: { changeClass: intent.changeClass, risk: intent.risk } };
   },
@@ -160,7 +168,8 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
     ``,
     `Run ${ctx.runId} · risk **${a.risk}** · ${a.intent.changeClass} · size ${a.plan.complexity} · cost so far $${ctx.state.costUsd.toFixed(2)}`,
     ``,
-    `## Your request (word for word)`,
+    `## Your request (word for word${requestFrom(ctx) ? `, from ${requestFrom(ctx)}` : ""})`,
+    ...(ctx.state.info.sources ?? []).filter((s) => s.kind === "jira").map((s) => `Ticket: ${s.url}`),
     ...request(ctx).split("\n").map((l) => `> ${l}`),
     ``,
     ...(a.clar.answers.length ? [``, `## Your answers`, ...a.clar.answers.map((q) => `- ${q.id} ${q.question} → **${q.answer}**${q.by === "default" || q.by === "default-timeout" ? " (default)" : ""}`)] : []),
