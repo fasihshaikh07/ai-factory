@@ -523,7 +523,12 @@ export function implementStep(taskId: string): StepDef {
       // a failed build marks every expected test "Build failed": that's the build, not a regression
       const gated = await gateAll(ctx, key, commit, [[testExpectations, { run: run.testRun, baseline: baselineSha }]], produced.build.ok ? earlier : undefined);
       if (gated) {
-        if (!produced.build.ok) gated.failures.unshift(...produced.build.errors.slice(0, 10).map((e) => failure("build", `${e.file}:${e.line} ${e.code} ${e.msg}`)));
+        if (!produced.build.ok) {
+          gated.failures.unshift(...produced.build.errors.slice(0, 10).map((e) => failure("build", `${e.file}:${e.line} ${e.code} ${e.msg}`)));
+          // the tests never ran, so two broken builds aren't "the same locked test failed twice"
+          gated.lockedFailedIds = [];
+          if (gated.category === "locked-test") gated.category = "other";
+        }
         return failed(gated);
       }
       return { kind: "done", outputs: { diff: diffSha, testRun: run.testRun }, treeSha: commit, data: { commit, ...retry } };

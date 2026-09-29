@@ -48,9 +48,9 @@ Decided at the start of `implement/<task>`, before the old reset block:
 - The decision is stored on the existing events: `retryMode` (`keep` or `reset`) and `retryReason` on `step.failed` and `step.completed` data, plus a log line such as *"implement TASK-2: keeping previous attempt's code (the previous attempt failed only on regression; …)"*. No new event type.
 - Unchanged: diff gates and the ladder's "same diff again" check measure from the task's start commit; attempt caps and park rules.
 
-### Known gap, not changed here
+### Broken builds
 
-A failed build marks every expected test as a failed locked test ("Build failed"). So two build failures in a row still hit the "same locked test failed twice" rule and park the run, even though the tests aren't at fault. The keep rule helps the second try, but doesn't stop that park. A small fix would be to leave `lockedFailedIds` empty when the build failed.
+A failed build marks every expected test as a failed locked test ("Build failed"). Those failures no longer count as locked-test failures: a broken build is category "other" with no locked tests named. So two broken builds in a row climb the ladder instead of hitting the "same locked test failed twice" rule and parking the run.
 
 ### Tests
 

@@ -151,6 +151,10 @@ class Lab implements ContainerRuntime {
       }
       return 0;
     }
+    if (multi && s.cmd[1] === "build") {
+      const src = mount("/src")!;
+      return MULTI_FILES.some((f) => existsSync(join(src, f)) && readFileSync(join(src, f), "utf8").includes("SYNTAX")) ? 1 : 0;
+    }
     if (s.cmd[1] === "test") {
       const src = mount("/src")!;
       const results = [{ name: "CHAR_Works", outcome: "Passed" }];
@@ -449,5 +453,28 @@ describe("implement loop across tasks (fakes)", () => {
     const log = execFileSync("git", ["log", "--format=%s", `main..factory/${runId}`], { cwd: s.info.repoPath!, encoding: "utf8" });
     expect(log.match(/factory: TASK-/g)).toHaveLength(3);
     expect(verifyEvidence(ledger).every((c) => c.ok)).toBe(true);
+  }, 30_000);
+
+  it("two broken builds in a row climb the ladder instead of parking as a suspect test", async () => {
+    multi = true;
+    lab.edits = {
+      "src/Api/Greeter.cs": [{ "src/Api/Greeter.cs": "SYNTAX" }, { "src/Api/Greeter.cs": "SYNTAX" }, { "src/Api/Greeter.cs": HELLO }],
+      "src/Api/Farewell.cs": [{ "src/Api/Farewell.cs": cls("Bye") }],
+      "src/Api/Third.cs": [{ "src/Api/Third.cs": cls("Three") }],
+    };
+    const runId = await createRun("Greet people with Hello instead of Hi", "demo", "tester");
+    const ledger = await toApproval(runId);
+    const card = replay(ledger.events()).openCard!;
+    await decide(ledger, { decision: "approve", hashPrefix: card.artifactSha.slice(0, 6), by: "ahsan" });
+    const r = await execute(runId);
+    expect(r.status, r.message).toBe("delivered");
+    const f1 = failedAttempts(ledger, "implement/TASK-1");
+    expect(f1.map((e) => e.data!.category)).toEqual(["other", "other"]);
+    expect(f1.map((e) => e.data!.lockedFailedIds ?? [])).toEqual([[], []]);
+    expect(f1.map((e) => [e.data!.action, e.data!.nextRung])).toEqual([["retry", 0], ["retry", 1]]);
+    // a broken build keeps the code on the same rung
+    const t1 = lab.seen.filter((x) => x.scope === MULTI_FILES[0]);
+    expect(t1[1]!.files["src/Api/Greeter.cs"]).toBe("SYNTAX");
+    expect(t1[1]!.task).toContain("Your previous change");
   }, 30_000);
 });
