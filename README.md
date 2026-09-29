@@ -186,6 +186,14 @@ note OPENAI_API_KEY not set: critic and review will use Claude (single family)
 
 Skipped the key during setup? Add it any time: `nano ~/.factory/.env` → `ANTHROPIC_API_KEY=sk-ant-...`. Never paste keys into chat, tickets or the repo.
 
+To start runs from Jira tickets (`--jira`), add these three lines too (optional):
+
+```ini
+JIRA_BASE_URL=https://yourcompany.atlassian.net
+JIRA_EMAIL=you@yourcompany.com
+JIRA_API_TOKEN=...        # id.atlassian.com → Security → Create API token
+```
+
 <details>
 <summary><b>What the setup does</b> (and how to do it by hand)</summary>
 
