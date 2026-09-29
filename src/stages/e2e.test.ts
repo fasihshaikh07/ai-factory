@@ -44,7 +44,30 @@ function makeRepo(): string {
 
 // ---------- scripted model ----------
 const U = { inputTokens: 2000, outputTokens: 300, cacheRead: 0, cacheWrite: 0 };
-function answerFor(system: string): unknown {
+/** Three tasks, one criterion each: Greeter says Hello, Farewell says Bye, Third says Three. */
+let multi = false;
+const MULTI_FILES = ["src/Api/Greeter.cs", "src/Api/Farewell.cs", "src/Api/Third.cs"];
+const MULTI_TESTS = ["AC_1_1_GreetsWithHello", "AC_2_1_SaysBye", "AC_3_1_CountsThree"];
+function multiAnswer(system: string): unknown {
+  if (system.includes("Senior engineer writing a behaviour spec")) {
+    const one = answerFor(system, false) as { requirements: unknown[] };
+    const req = (n: number, then: string) => ({ id: `REQ-${n}`, ears: `When called, the service shall ${then}.`, op: "ADDED", sources: ["I-1"], anchors: [],
+      acceptance: [{ id: `AC-${n}.1`, given: "a call", when: "it runs", then: `the returned value is ${then.replace("say ", "")}`, level: "api" }] });
+    return { ...one, requirements: [...one.requirements, req(2, "say Bye"), req(3, "say Three")] };
+  }
+  if (system.includes("Merge three independent")) {
+    const one = answerFor(system, false) as Record<string, unknown>;
+    return { ...one, spec: multiAnswer("Senior engineer writing a behaviour spec"), alignment: [1, 2, 3].map((n) => ({ mergedReq: `REQ-${n}`, from: [`d1:REQ-${n}`, `d2:REQ-${n}`, `d3:REQ-${n}`] })) };
+  }
+  if (system.includes("plan the implementation")) {
+    const one = answerFor(system, false) as { tasks: { reqs: string[]; fileScope: string[] }[] };
+    const t = (n: number) => ({ id: `TASK-${n}`, title: `Part ${n}`, reqs: [`REQ-${n}`], fileScope: [MULTI_FILES[n - 1]!], exemplars: [], conventions: [], dependsOn: n > 1 ? [`TASK-${n - 1}`] : [], plannedLoc: 3, approach: "small edit" });
+    return { ...one, tasks: [t(1), t(2), t(3)] };
+  }
+  return undefined;
+}
+function answerFor(system: string, allowMulti = true): unknown {
+  if (multi && allowMulti) { const m = multiAnswer(system); if (m !== undefined) return m; }
   if (system.includes("intake step")) return { source: "cli", spans: [{ id: "I-1", text: "greet with Hello" }], changeClass: "feature", risk: "low", riskTags: [], rigor: "light", touchesUi: false };
   if (system.includes("grounding step")) return { claims: [{ id: "C-1", text: "Greeter says Hi", spans: ["I-1"], anchors: [{ path: "src/Api/Greeter.cs", lineStart: 4, lineEnd: 4, quote: 'public string Greet(string name) => "Hi " + name;', symbol: "Greeter.Greet" }] }], notFound: [] };
   if (system.includes("independently reading a change request")) return { spans: [{ id: "I-1", behaviours: [{ text: system.length % 2 ? "Hello Ann" : "Hello, Ann!", kind: "happy" }, { text: "empty name returns Hello", kind: "error" }] }] };
@@ -86,6 +109,10 @@ class Lab implements ContainerRuntime {
   specs = new Map<string, ContainerSpec>();
   n = 0;
   crashOnImplement = false;
+  /** multi: per file scope, the files each implement attempt writes (the last entry repeats) */
+  edits: Record<string, Record<string, string>[]> = {};
+  /** multi: what each implement attempt found before it edited */
+  seen: { scope: string; head: string; task: string; files: Record<string, string | null> }[] = [];
   async version() { return "fake"; }
   async create(s: ContainerSpec) { const id = `c${++this.n}`; this.specs.set(id, s); return id; }
   async start() {}
@@ -96,7 +123,20 @@ class Lab implements ContainerRuntime {
       const work = mount("/work")!;
       const job = JSON.parse(readFileSync(mount("/job/in.json")!, "utf8")) as { fileScope: string[] };
       const out = mount("/job/out")!;
-      if (job.fileScope.includes("tests/**")) {
+      if (multi && job.fileScope.includes("tests/**")) {
+        writeFileSync(join(work, "tests/Api.Tests/GreetTests.cs"), "namespace Api.Tests; public class GreetTests { }\n");
+        writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { tests: MULTI_TESTS.map((name, i) => ({ acId: `AC-${i + 1}.1`, file: "tests/Api.Tests/GreetTests.cs", name })), characterisation: [{ target: "Greeter", file: "tests/Api.Tests/ExistingTests.cs", name: "CHAR_Works" }], probes: [], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 5000, output_tokens: 800 }, costUsd: 0.05, turns: 6 }));
+      } else if (multi) {
+        const job2 = JSON.parse(readFileSync(mount("/job/in.json")!, "utf8")) as { fileScope: string[]; task: string };
+        const scope = job2.fileScope[0]!;
+        const read = (f: string) => (existsSync(join(work, f)) ? readFileSync(join(work, f), "utf8") : null);
+        this.seen.push({ scope, head: execFileSync("git", ["rev-parse", "HEAD"], { cwd: work, encoding: "utf8" }).trim(), task: job2.task,
+          files: Object.fromEntries([...MULTI_FILES, "src/Api/Extra.cs"].map((f) => [f, read(f)])) });
+        const list = this.edits[scope]!;
+        const edit = list.length > 1 ? list.shift()! : list[0]!;
+        for (const [f, text] of Object.entries(edit)) writeFileSync(join(work, f), text);
+        writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { done: true, filesChanged: Object.keys(edit), notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 8000, output_tokens: 900 }, costUsd: 0.08, turns: 9 }));
+      } else if (job.fileScope.includes("tests/**")) {
         writeFileSync(join(work, "tests/Api.Tests/GreetTests.cs"), "namespace Api.Tests; public class GreetTests { /* AC-1.1 */ }\n");
         writeFileSync(join(out, "result.json"), JSON.stringify({ status: "ok", output: { tests: [{ acId: "AC-1.1", file: "tests/Api.Tests/GreetTests.cs", name: "AC_1_1_GreetsWithHello" }], characterisation: [{ target: "Greeter", file: "tests/Api.Tests/ExistingTests.cs", name: "CHAR_Works" }], probes: [{ acId: "AC-1.1", method: "GET", path: "/greet/Ann", expectStatus: 200 }], notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: { input_tokens: 5000, output_tokens: 800 }, costUsd: 0.05, turns: 6 }));
       } else {
@@ -115,7 +155,13 @@ class Lab implements ContainerRuntime {
       const src = mount("/src")!;
       const results = [{ name: "CHAR_Works", outcome: "Passed" }];
       let code = 0;
-      if (existsSync(join(src, "tests/Api.Tests/GreetTests.cs"))) {
+      if (multi && existsSync(join(src, "tests/Api.Tests/GreetTests.cs"))) {
+        const read = (f: string) => (existsSync(join(src, f)) ? readFileSync(join(src, f), "utf8") : "");
+        // Greeter's test also breaks when Farewell says BREAK: a later task can break an earlier one
+        const pass = [read("src/Api/Greeter.cs").includes('"Hello "') && !read("src/Api/Farewell.cs").includes("BREAK"), read("src/Api/Farewell.cs").includes("Bye"), read("src/Api/Third.cs").includes("Three")];
+        MULTI_TESTS.forEach((name, i) => results.push(pass[i] ? { name, outcome: "Passed" } : { name, outcome: "Failed", message: `Assert.Equal() Failure: ${name}` } as never));
+        if (pass.includes(false)) code = 1;
+      } else if (existsSync(join(src, "tests/Api.Tests/GreetTests.cs"))) {
         const done = readFileSync(join(src, "src/Api/Greeter.cs"), "utf8").includes('"Hello "');
         results.push(done ? { name: "AC_1_1_GreetsWithHello", outcome: "Passed" } : { name: "AC_1_1_GreetsWithHello", outcome: "Failed", message: "Assert.Equal() Failure: Expected Hello Ann, Actual Hi Ann" } as never);
         if (!done) code = 1;
@@ -157,7 +203,7 @@ async function toApproval(runId: string) {
   expect(ledger.readCard(q.cardId)).toContain("Keep the comma?");
   await decide(ledger, { decision: "answer", hashPrefix: q.artifactSha.slice(0, 6), by: "ahsan", data: { answers: { "Q-1": "A" } } });
   const r2 = await execute(runId);
-  expect(r2.status).toBe("waiting");
+  expect(r2.status, r2.message).toBe("waiting");
   return ledger;
 }
 
@@ -175,6 +221,7 @@ beforeEach(() => {
   setSkipInfra(true);
   setProviderFactory(() => provider);
   modelCalls.length = 0;
+  multi = false;
 });
 
 describe("brownfield slice end to end (fakes)", () => {
@@ -331,4 +378,76 @@ describe("brownfield slice end to end (fakes)", () => {
     expect(() => readRequestFile(join(dir, "empty.md"))).toThrow(/empty/);
     expect(() => readRequestFile(join(dir, "missing.md"))).toThrow(/No such file/);
   });
+});
+
+describe("implement loop across tasks (fakes)", () => {
+  const HELLO = GREETER.replace('"Hi "', '"Hello "');
+  const cls = (text: string) => `namespace Api; public static class X { public const string S = "${text}"; }\n`;
+  const failedAttempts = (ledger: Ledger, step: string) => ledger.events().filter((e) => e.type === "step.failed" && e.key?.startsWith(`${step}/`));
+
+  it("holds each task to earlier tasks' tests, climbs on regressions, keeps code on same-rung retries", async () => {
+    multi = true;
+    lab.edits = {
+      // TASK-1: first attempt also writes a file outside its scope → reset
+      "src/Api/Greeter.cs": [{ "src/Api/Greeter.cs": HELLO, "src/Api/Extra.cs": cls("extra") }, { "src/Api/Greeter.cs": HELLO }],
+      // TASK-2: breaks TASK-1's test twice (same rung, then stuck → climbs), then gets it right
+      "src/Api/Farewell.cs": [{ "src/Api/Farewell.cs": cls("Bye BREAK") }, { "src/Api/Farewell.cs": cls("Bye BREAK") }, { "src/Api/Farewell.cs": cls("Bye") }],
+      // TASK-3: its own locked test fails once, then a small fix on top of the kept code
+      "src/Api/Third.cs": [{ "src/Api/Third.cs": cls("Thre") }, { "src/Api/Third.cs": cls("Three") }],
+    };
+    const runId = await createRun("Greet people with Hello instead of Hi", "demo", "tester");
+    const ledger = await toApproval(runId);
+    const card = replay(ledger.events()).openCard!;
+    await decide(ledger, { decision: "approve", hashPrefix: card.artifactSha.slice(0, 6), by: "ahsan" });
+    const r = await execute(runId);
+    expect(r.status, r.message).toBe("delivered");
+    const s = replay(ledger.events());
+    expect(s.steps.get("implement/TASK-1")?.attempts).toBe(2);
+    expect(s.steps.get("implement/TASK-2")?.attempts).toBe(3);
+    expect(s.steps.get("implement/TASK-3")?.attempts).toBe(2);
+    const ids = MULTI_TESTS.map((n) => `Api.Tests::Api.Tests.GreetTests.${n}`);
+    const start = (task: string) => String(s.steps.get(task)!.data!.commit);
+
+    // TASK-1: out-of-scope edit → the retry starts from the task start commit, the stray file gone
+    const t1 = lab.seen.filter((x) => x.scope === MULTI_FILES[0]);
+    expect(failedAttempts(ledger, "implement/TASK-1")[0]!.data).toMatchObject({ category: "other", retryMode: "reset" });
+    expect(t1[1]!.files["src/Api/Extra.cs"]).toBeNull();
+    expect(t1[1]!.files["src/Api/Greeter.cs"]).toBe(GREETER);
+    expect(t1[1]!.head).toBe(t1[0]!.head);
+    expect(t1[1]!.task).not.toContain("Your previous change");
+
+    // TASK-2: TASK-1's test is expected; TASK-3's is not
+    const t2run = ledger.getJson<{ expectPass: string[] }>(s.steps.get("implement/TASK-2")!.outputs[1]!);
+    expect(t2run.expectPass).toContain(ids[0]);
+    expect(t2run.expectPass).toContain(ids[1]);
+    expect(t2run.expectPass).not.toContain(ids[2]);
+    // a regression names TASK-1, climbs the ladder (other, not locked-test), never parks on the "failed twice" rule
+    const f2 = failedAttempts(ledger, "implement/TASK-2");
+    expect(f2.map((e) => e.data!.category)).toEqual(["other", "other"]);
+    expect(f2.map((e) => e.data!.lockedFailedIds ?? [])).toEqual([[], []]);
+    expect(f2.map((e) => [e.data!.rung, e.data!.action, e.data!.nextRung])).toEqual([[0, "retry", 0], [0, "retry", 1]]);
+    const why = ledger.getJson<{ check: string; message: string }[]>(f2[0]!.outputs![0]!);
+    expect(why).toContainEqual(expect.objectContaining({ check: "regression", message: expect.stringMatching(/^Your change broke TASK-1's locked test .*AC_1_1_GreetsWithHello \(AC-1\.1\)/) }));
+    // same rung → keeps the code; the climb to rung 1 → starts fresh
+    const t2 = lab.seen.filter((x) => x.scope === MULTI_FILES[1]);
+    expect(t2[1]!.files["src/Api/Farewell.cs"]).toBe(cls("Bye BREAK"));
+    expect(t2[1]!.task).toContain("Your previous change");
+    expect(t2[1]!.task).toContain("don't rewrite it");
+    expect(t2[2]!.files["src/Api/Farewell.cs"]).toBeNull();
+    expect(t2[2]!.task).not.toContain("Your previous change");
+    expect(f2[1]!.data).toMatchObject({ retryMode: "keep" });
+    expect(s.steps.get("implement/TASK-2")!.data).toMatchObject({ retryMode: "reset", retryReason: "moved from rung 0 to rung 1" });
+
+    // TASK-3: its own test failed once → the retry keeps the code, HEAD stays at the task start
+    const t3 = lab.seen.filter((x) => x.scope === MULTI_FILES[2]);
+    expect(t3[1]!.files["src/Api/Third.cs"]).toBe(cls("Thre"));
+    expect(t3[1]!.head).toBe(start("implement/TASK-2"));
+    expect(t3[1]!.task).toContain("Your previous change");
+    expect(t3[1]!.task).toMatch(/\+.*Thre/);
+    expect(s.steps.get("implement/TASK-3")!.data).toMatchObject({ retryMode: "keep" });
+    // each task is still one commit on the branch; every gate decision re-checks
+    const log = execFileSync("git", ["log", "--format=%s", `main..factory/${runId}`], { cwd: s.info.repoPath!, encoding: "utf8" });
+    expect(log.match(/factory: TASK-/g)).toHaveLength(3);
+    expect(verifyEvidence(ledger).every((c) => c.ok)).toBe(true);
+  }, 30_000);
 });
