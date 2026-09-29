@@ -306,4 +306,29 @@ describe("brownfield slice end to end (fakes)", () => {
     expect(r3.status).toBe("parked");
     expect(r3.message).toMatch(/Rejected 2 times/);
   });
+
+  it("a request can come from a Markdown file; its name shows on the card", async () => {
+    const { readRequestFile, MAX_REQUEST_FILE_BYTES } = await import("./executor.js");
+    const dir = mkdtempSync(join(tmpdir(), "factory-req-"));
+    const md = join(dir, "request.md");
+    writeFileSync(md, "# Greeting\n\nGreet people with Hello instead of Hi.\n\n- keep the name after the greeting\n");
+    const file = readRequestFile(md);
+    expect(file.name).toBe("request.md");
+    const runId = await createRun(file.text, "demo", "tester", { requestFile: file.name });
+    const ledger = Ledger.open(runId);
+    const s = replay(ledger.events());
+    expect(s.info.requestFile).toBe("request.md");
+    expect(s.info.request).toBe(file.text);
+    const withCard = await toApproval(runId);
+    const card = withCard.readCard(replay(withCard.events()).openCard!.cardId);
+    expect(card).toContain("## Your request (word for word, from request.md)");
+    expect(card).toContain("> - keep the name after the greeting");
+    // too big or empty files are refused before a run exists
+    const big = join(dir, "big.md");
+    writeFileSync(big, "x".repeat(MAX_REQUEST_FILE_BYTES + 1));
+    expect(() => readRequestFile(big)).toThrow(/split the request/);
+    writeFileSync(join(dir, "empty.md"), "  \n");
+    expect(() => readRequestFile(join(dir, "empty.md"))).toThrow(/empty/);
+    expect(() => readRequestFile(join(dir, "missing.md"))).toThrow(/No such file/);
+  });
 });

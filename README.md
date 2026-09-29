@@ -102,6 +102,7 @@ When something keeps failing, the factory climbs a fixed ladder (retry with the 
 | Test lab: restore → offline build → tests next to a throwaway Postgres | Review repair loop (blocking findings park the run); unlock card for a wrong test |
 | Ledger, crash-resume, failure ladder, cost caps, verify-evidence | URL-prefix package filter (today: allowlist by host name) |
 | GitHub PR delivery (optional) | Bitbucket PR delivery (today: branch ready locally) |
+| Design toolkit for web apps (no AI): how big a UI change is, shown on the approval card; style checks; `factory design` | The design mock step and screenshots; the design checks aren't called by any step yet |
 
 **Refused for now:** SQL Server, repos whose tests start their own containers (Testcontainers), Windows-only projects (WPF/WinForms/.NET Framework), Git LFS, submodules.
 
@@ -185,6 +186,14 @@ note OPENAI_API_KEY not set: critic and review will use Claude (single family)
 ```
 
 Skipped the key during setup? Add it any time: `nano ~/.factory/.env` → `ANTHROPIC_API_KEY=sk-ant-...`. Never paste keys into chat, tickets or the repo.
+
+To start runs from Jira tickets (`--jira`), add these three lines too (optional):
+
+```ini
+JIRA_BASE_URL=https://yourcompany.atlassian.net
+JIRA_EMAIL=you@yourcompany.com
+JIRA_API_TOKEN=...        # id.atlassian.com → Security → Create API token
+```
 
 <details>
 <summary><b>What the setup does</b> (and how to do it by hand)</summary>
@@ -362,6 +371,9 @@ factory smoke --project shop-api
 
 ```bash
 factory start "what you want changed, in plain words" --project shop-api --max-cost 5
+# or from a file, or from a Jira ticket:
+factory start --file request.md --project shop-api --max-cost 5
+factory start --jira SHOP-412 --project shop-api --max-cost 5
 factory logs <run> --follow        # in a second terminal
 ```
 
@@ -397,7 +409,11 @@ factory show-card <run> --pr       # paste this as the PR description
 | `factory init <repo>` | Adds a project: copies the repo into Linux if needed, detects settings, writes the config. |
 | `factory mcp` | Runs the MCP server for Claude Code (registered by setup). |
 | `factory baseline --project <p>` | Builds and tests the untouched repo in the test lab. No AI. |
-| `factory start "<request>" --project <p> [--max-cost <usd>]` | Creates a run and executes until a card, a park or delivery. `--max-cost` lowers this run's spend limit. |
+| `factory start "<request>" --project <p> [--max-cost <usd>]` | Creates a run and executes until a card, a park or delivery. `--max-cost` lowers this run's spend limit: at that amount the run stops and asks you. |
+| `factory start --file request.md --project <p>` | Same, with the request from a Markdown or text file. |
+| `factory start --jira ABC-123 --project <p>` | Same, with the request from a Jira ticket (key or link): summary, description and latest comments. Needs Jira set up in `~/.factory/.env`. |
+
+The request can come from **any one** of a typed prompt, `--file` or `--jira`, or several at once (they're combined into one request, each part labelled). Up to about 25 KB of text in total; more is refused before anything is spent.
 | `factory status [run]` | All recent runs, or one run's steps, cost and open card. |
 | `factory show-card <run> [--pr]` | Prints the open card (or the PR text). |
 | `factory answer <run> <hash> Q-1=A …` | Answers a question card. Terminal only. |
@@ -408,6 +424,12 @@ factory show-card <run> --pr       # paste this as the PR description
 | `factory pause <run>` / `stop <run>` | Pauses or stops at the next step boundary. |
 | `factory steer <run> <file>` | Records a requirement change (applying it isn't built yet). |
 | `factory verify-evidence <run>` | Re-runs every gate decision from the ledger. |
+| `factory design inventory <repo>` | Scans a web app's look: theme settings, shared components and how often each is used, pages. No AI. |
+| `factory design size` | Says how big a UI change is (no UI, screen tweak, new screen, or a change to the shared look), from a plan's file list or a git diff, with reasons. |
+| `factory design lint` | Checks a change uses only the theme's colours and the app's existing components, and adds no new shared components. |
+| `factory design brief <file>` | Cleans a design brief from outside (a Figma export, a brand guide) down to plain fields and shows what it dropped. |
+
+Run any `factory design` command with `--help` for its options.
 
 Decisions (`answer`, `approve`, `reject`, `steer`) only work from an interactive terminal, so no script, plugin or AI can approve its own plan.
 
@@ -461,6 +483,7 @@ By design it **can't answer questions or approve plans**. Those always happen in
 | Many tests fail in `baseline` | Check whether they fail on your machine too. If yes, they're pre-existing and remembered. If not, compare DB settings (`database:`) and seed data. |
 | `Repo is busy: run … is executing` | Only one run executes per repo at a time. Wait, or `factory stop` the other run. |
 | A run is `parked` | `factory status <run>` shows why; fix it and `factory resume <run>`. |
+| A file (e.g. `scripts/setup.sh`) keeps showing as changed, and comes back after *Discard* | VS Code is using Windows Git on the Ubuntu folder, which can't keep Linux's executable flag. Close that window, run `cd ~/ai-factory && code .` in the Ubuntu terminal (bottom-left must say *WSL: Ubuntu*), and run `git config core.fileMode false` once in the folder. |
 | `.env` not visible in VS Code | It's in `~/.factory/`, not the project. `code ~/.factory/.env`. |
 | Git asks for a password (Windows) | GitHub needs a token, not your password. Re-run `install.ps1`; it connects Ubuntu's git to your Windows GitHub sign-in. |
 | Mac: builds are slow or run out of memory | `colima stop && colima start --cpu 6 --memory 12` |
@@ -481,6 +504,7 @@ ai-factory/
 │   ├── context/     context builder: snapshot, read-only tools, repo map, redaction
 │   ├── runners/     model runners: own read-only loop (API), Claude agent in a container, proxy
 │   ├── stages/      the pipeline steps and the executor
+│   ├── design/      design toolkit: app scan, UI change size, style checks, brief cleaner
 │   ├── config/      project config and secrets loading
 │   └── cli/         the `factory` command
 ├── scripts/setup.sh  one-command setup (macOS, Ubuntu, WSL)
@@ -490,6 +514,8 @@ ai-factory/
 │   └── proxy/       the egress proxy (adds API keys, allowlists package feeds)
 └── docs/
     ├── design/      the design documents
+    ├── design-step.md  where the design step plugs in, and what's still to wire
+    ├── design-eval/ how the design toolkit scored on real Next.js commits
     └── project-example.yaml
 ```
 
@@ -521,7 +547,7 @@ npm run build
 
 ## Design docs
 
-Start with [`docs/design/BUILD-BRIEF.md`](docs/design/BUILD-BRIEF.md), then [`docs/design/stages-aligned.md`](docs/design/stages-aligned.md) (the source of truth for stages). Component designs: run manager, gate engine, verify runner, context builder, adapters.
+Start with [`docs/design/BUILD-BRIEF.md`](docs/design/BUILD-BRIEF.md), then [`docs/design/stages-aligned.md`](docs/design/stages-aligned.md) (the source of truth for stages). Component designs: run manager, gate engine, verify runner, context builder, adapters. The design step for UI changes is in [`docs/design-step.md`](docs/design-step.md), with its test results in [`docs/design-eval/results.md`](docs/design-eval/results.md).
 
 ---
 

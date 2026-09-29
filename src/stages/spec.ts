@@ -14,8 +14,10 @@ import { header, planRejections, readOutput, requireOutput, type StepContext, ty
 import { acOwners } from "./build.js";
 import { clarifications, type ClarifyResult } from "./clarify.js";
 import { CriticOut } from "./specpipe.js";
+import { describeSources } from "../sources/request.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
 import { snapshotFor, toolsFor } from "./workspace.js";
+import { uiSizeForCard } from "../design/card.js";
 
 type Intent = z.infer<typeof IntentBody>;
 type CB = z.infer<typeof CurrentBehaviourBody>;
@@ -36,6 +38,9 @@ export function ruleRisk(text: string): { risk: Risk; tags: string[] } {
 }
 
 const request = (ctx: Pick<StepContext, "state">) => ctx.state.info.request ?? "";
+/** "request.md + Jira ABC-12" (older runs: the file name only) */
+const requestFrom = (ctx: Pick<StepContext, "state">) => describeSources(ctx.state.info.sources) || ctx.state.info.requestFile || "";
+const jiraSource = (ctx: Pick<StepContext, "state">) => ctx.state.info.sources?.find((s) => s.kind === "jira");
 
 // ---------- intake ----------
 export const intakeStep: StepDef = {
@@ -52,13 +57,17 @@ ${UNTRUSTED_NOTE}
 - risk: low | medium | high. riskTags from: auth, payments, pii, migration, public-api.
 - rigor: "light" only for a small, low-risk change; else "full". touchesUi: true if a screen changes.
 - source: "cli".`),
-        S.untrusted("request", "cli", request(ctx)),
+        S.untrusted("request", jiraSource(ctx) ? "jira" : "cli", request(ctx)),
         S.task("Classify this request."),
       ],
     });
     if (!r.ok) return r.outcome;
     const rules = ruleRisk(request(ctx));
-    const intent = { ...r.output, source: "cli" as const, risk: maxRisk(r.output.risk, rules.risk), riskTags: [...new Set([...r.output.riskTags, ...rules.tags])] };
+    const jira = jiraSource(ctx);
+    const intent = {
+      ...r.output, source: jira ? ("ticket" as const) : ("cli" as const), ...(jira ? { sourceRef: jira.url } : {}),
+      risk: maxRisk(r.output.risk, rules.risk), riskTags: [...new Set([...r.output.riskTags, ...rules.tags])],
+    };
     const sha = ctx.ledger.putJson({ header: header(ctx.runId, "intent", "intake", "", r.model), ...intent });
     return { kind: "done", outputs: { intent: sha }, data: { changeClass: intent.changeClass, risk: intent.risk } };
   },
@@ -150,7 +159,7 @@ export function plannedFiles(plan: PlanT): string[] {
   return [...new Set(plan.tasks.flatMap((t) => t.fileScope))].sort();
 }
 
-export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; plan: PlanT & { complexity: Complexity }; critic: { findings: z.infer<typeof CriticOut>["findings"]; note?: string }; cb: CB; risk: Risk; clar: ReturnType<typeof clarifications>; open: string[]; roundTrip?: { droppedSpans: string[]; inventedCapabilities: string[] } }): string {
+export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; plan: PlanT & { complexity: Complexity }; critic: { findings: z.infer<typeof CriticOut>["findings"]; note?: string }; cb: CB; risk: Risk; clar: ReturnType<typeof clarifications>; open: string[]; roundTrip?: { droppedSpans: string[]; inventedCapabilities: string[] }; /** design step: UI size line (absent when the plan touches no UI) */ uiSize?: string }): string {
   const grounded = new Set(a.cb.claims.flatMap((c) => c.anchors.map((x) => x.path)));
   const files = plannedFiles(a.plan);
   const notGrounded = files.filter((f) => !grounded.has(f));
@@ -160,7 +169,8 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
     ``,
     `Run ${ctx.runId} · risk **${a.risk}** · ${a.intent.changeClass} · size ${a.plan.complexity} · cost so far $${ctx.state.costUsd.toFixed(2)}`,
     ``,
-    `## Your request (word for word)`,
+    `## Your request (word for word${requestFrom(ctx) ? `, from ${requestFrom(ctx)}` : ""})`,
+    ...(ctx.state.info.sources ?? []).filter((s) => s.kind === "jira").map((s) => `Ticket: ${s.url}`),
     ...request(ctx).split("\n").map((l) => `> ${l}`),
     ``,
     ...(a.clar.answers.length ? [``, `## Your answers`, ...a.clar.answers.map((q) => `- ${q.id} ${q.question} → **${q.answer}**${q.by === "default" || q.by === "default-timeout" ? " (default)" : ""}`)] : []),
@@ -175,6 +185,7 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
     `## Files the plan will touch (${files.length})`,
     ...files.map((f) => `- ${f}${notGrounded.includes(f) ? "  ← not found by grounding; check it" : ""}${protectedTouched.includes(f) ? "  ← protected file" : ""}`),
     ...(a.plan.newDependencies.length ? [``, `New packages: ${a.plan.newDependencies.map((d) => `${d.name} ${d.version}`).join(", ")}`] : []),
+    ...(a.uiSize ? [``, a.uiSize] : []),
     ``,
     `## Plan`,
     `Options: ${a.plan.options.map((o) => `${o.id}${o.id === a.plan.chosen ? " (chosen)" : ""}: ${o.summary}`).join(" | ")}`,
@@ -225,6 +236,7 @@ export const approveStep: StepDef = {
       clar: clarifications(readOutput<ClarifyResult>(ctx.state, ctx.ledger, "clarify"), readOutput<ClarifyResult>(ctx.state, ctx.ledger, "clarify-2")),
       open: (ctx.state.steps.get("specify")!.data?.openFindings as string[] | undefined) ?? [],
       roundTrip: requireOutput<{ roundTrip?: { droppedSpans: string[]; inventedCapabilities: string[] } }>(ctx.state, ctx.ledger, "specify").roundTrip,
+      uiSize: uiSizeForCard(snapshotFor(ctx), plannedFiles(requireOutput<PlanT>(ctx.state, ctx.ledger, "plan"))),
     });
     const card = `${md}\n\nCard hash: ${bundleSha.slice(0, 8)}`;
     return { kind: "wait", card: { cardId: `approval-${bundleSha.slice(0, 8)}`, kind: "approval", artifactSha: bundleSha, markdown: card } };

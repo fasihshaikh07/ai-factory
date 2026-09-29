@@ -12,3 +12,13 @@ export type JSONSchema = Record<string, unknown>;
 export function toJsonSchema(schema: z.ZodType): JSONSchema {
   return z.toJSONSchema(schema, { target: "draft-2020-12", io: "input" }) as JSONSchema;
 }
+
+/**
+ * JSON Schema for the coding agent's structured output. Claude Code validates it with a draft-07
+ * checker that rejects a 2020-12 `$schema`, so: draft-07, and no `$schema` line at all.
+ */
+export function toAgentJsonSchema(schema: z.ZodType): JSONSchema {
+  const { $schema: _drop, ...rest } = z.toJSONSchema(schema, { target: "draft-7", io: "input" }) as JSONSchema;
+  void _drop;
+  return rest;
+}

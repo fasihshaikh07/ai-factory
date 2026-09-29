@@ -59,6 +59,10 @@ export interface RunInfo {
   changeClass?: ChangeClass;
   complexity?: Complexity;
   request?: string;
+  /** `factory start --file`: the file the request came from */
+  requestFile?: string;
+  /** where the request came from: typed prompt, file, Jira ticket */
+  sources?: { kind: "prompt" | "file" | "jira"; name?: string; key?: string; url?: string; summary?: string }[];
   versions?: Record<string, string>;
   /** spend when the plan completed; the post-plan cost limit adds the size's cap to it */
   spendAtPlan?: number;

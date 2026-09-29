@@ -117,3 +117,23 @@ describe("egress proxy", () => {
     expect(status).toBe(403);
   });
 });
+
+describe("the coding agent's output schema", () => {
+  it("is draft-07 without a $schema line (Claude Code's checker rejects 2020-12)", async () => {
+    const rt = new FakeRt({ status: "ok", output: { done: true, notes: "" }, instructionsLoaded: [], deniedEdits: [], usage: {}, costUsd: 0, turns: 1 });
+    let sent: Record<string, unknown> | undefined;
+    const orig = rt.wait.bind(rt);
+    rt.wait = async () => {
+      const inJson = rt.spec!.mounts.find((m) => m.dst === "/job/in.json")!.src;
+      sent = JSON.parse((await import("node:fs")).readFileSync(inJson, "utf8")).schema;
+      return orig();
+    };
+    await new ClaudeAgentRunner(rt, { runId: "r", key: "k", fileScope: [], lockedFiles: [], extraProtected: [], agentEnv: {} })
+      .run({ step: "implement", model: "claude-sonnet-5", pack, schema: z.object({ done: z.boolean(), notes: z.string(), list: z.array(z.object({ a: z.string().regex(/^AC_/) })).default([]) }), limits: { maxTurns: 1, maxUsd: 1, timeoutSec: 60 }, workdir: worktree() });
+    expect(sent).toBeDefined();
+    expect(sent!.$schema).toBeUndefined();
+    expect(JSON.stringify(sent)).not.toContain("2020-12");
+    expect(JSON.stringify(sent)).not.toContain("$defs");
+    expect(sent).toMatchObject({ type: "object", required: expect.arrayContaining(["done", "notes"]) });
+  });
+});

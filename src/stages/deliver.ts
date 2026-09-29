@@ -63,6 +63,7 @@ function prBody(ctx: StepContext, a: { spec: Spec; plan: Plan; lock: { tests: { 
   const flaky = a.run.results.filter((r) => r.flaky).map((r) => r.id);
   return [
     `## What was asked`,
+    ...((ctx.state.info.sources ?? []).length ? [`From: ${(ctx.state.info.sources ?? []).map((x) => (x.kind === "jira" ? `[${x.key}](${x.url})` : x.kind === "file" ? x.name : "typed prompt")).join(" + ")}`, ``] : []),
     ...(ctx.state.info.request ?? "").split("\n").map((l) => `> ${l}`),
     ``,
     `## Requirements → tests`,

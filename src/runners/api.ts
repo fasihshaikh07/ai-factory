@@ -109,17 +109,74 @@ export class AnthropicProvider implements Provider {
   }
 }
 
-// ---------- OpenAI (and OpenAI-compatible servers) ----------
+// ---------- OpenAI (Responses API) and OpenAI-compatible local servers (chat completions) ----------
 
 export class OpenAIProvider implements Provider {
   private readonly client: OpenAI;
-  constructor(opts: { apiKey?: string; baseURL?: string } = {}) {
+  /** local servers (Ollama, vLLM) speak chat completions; OpenAI itself needs the Responses API for tools + reasoning */
+  private readonly local: boolean;
+  constructor(opts: { apiKey?: string; baseURL?: string; api?: "responses" | "chat" } = {}) {
     const apiKey = opts.apiKey ?? secret("OPENAI_API_KEY");
     if (!apiKey && !opts.baseURL) throw new Error("OPENAI_API_KEY is missing. Add it to ~/.factory/.env");
-    this.client = new OpenAI({ apiKey: apiKey ?? "local", baseURL: opts.baseURL, maxRetries: 2 });
+    this.client = new OpenAI({ apiKey: apiKey ?? "local", baseURL: opts.baseURL, maxRetries: 0 });
+    this.local = opts.api ? opts.api === "chat" : !!opts.baseURL;
   }
 
   start(model: string, effort: Effort | undefined, system: string, user: string, tools: ToolSpec[]): Conversation {
+    return this.local ? this.chat(model, effort, system, user, tools) : this.responses(model, effort, system, user, tools);
+  }
+
+  private rethrow(e: unknown): never {
+    if (e instanceof OpenAI.RateLimitError || e instanceof OpenAI.InternalServerError) throw new RateLimitedError((e as Error).message);
+    if (e instanceof OpenAI.APIError && CONFIG_STATUSES.has(e.status as number)) throw new ConfigError(e.status as number, (e as Error).message);
+    throw e;
+  }
+
+  /** OpenAI: Responses API. Nothing is stored on OpenAI's side (store: false); the conversation is resent each turn. */
+  private responses(model: string, effort: Effort | undefined, system: string, user: string, tools: ToolSpec[]): Conversation {
+    const client = this.client;
+    const input: OpenAI.Responses.ResponseInput = [{ role: "user", content: user }];
+    const toolParams: OpenAI.Responses.FunctionTool[] = tools.map((t) => ({ type: "function", name: t.name, description: t.description, parameters: t.schema, strict: false }));
+    const rethrow = (e: unknown) => this.rethrow(e);
+    return {
+      async next(): Promise<Turn> {
+        let res: OpenAI.Responses.Response;
+        try {
+          res = await client.responses.create({
+            model, instructions: system, input, tools: toolParams, tool_choice: "auto",
+            ...(effort ? { reasoning: { effort } } : {}),
+            store: false, include: ["reasoning.encrypted_content"],
+          });
+        } catch (e) {
+          rethrow(e);
+        }
+        // the output items (reasoning, messages, function calls) go back in as input next turn
+        input.push(...(res!.output as unknown as OpenAI.Responses.ResponseInputItem[]));
+        const calls = res!.output.filter((o): o is OpenAI.Responses.ResponseFunctionToolCall => o.type === "function_call").map((c) => {
+          let parsed: unknown;
+          try { parsed = JSON.parse(c.arguments || "{}"); } catch { parsed = { __unparsable: true }; }
+          return { id: c.call_id, name: c.name, input: parsed };
+        });
+        const refused = res!.output.some((o) => o.type === "message" && o.content.some((c) => c.type === "refusal"));
+        const u = res!.usage;
+        const cached = u?.input_tokens_details?.cached_tokens ?? 0;
+        return {
+          calls, text: res!.output_text ?? "",
+          stop: refused ? "refusal" : res!.status === "incomplete" && res!.incomplete_details?.reason === "max_output_tokens" ? "max_tokens" : calls.length ? "tool_use" : "end",
+          usage: { inputTokens: (u?.input_tokens ?? 0) - cached, outputTokens: u?.output_tokens ?? 0, cacheRead: cached, cacheWrite: 0 },
+        };
+      },
+      toolResults(results) {
+        for (const r of results) input.push({ type: "function_call_output", call_id: r.id, output: r.isError ? `ERROR: ${r.content}` : r.content });
+      },
+      say(text) {
+        input.push({ role: "user", content: text });
+      },
+    };
+  }
+
+  /** Local OpenAI-compatible servers: chat completions. */
+  private chat(model: string, effort: Effort | undefined, system: string, user: string, tools: ToolSpec[]): Conversation {
     const client = this.client;
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "developer", content: system },
@@ -128,28 +185,26 @@ export class OpenAIProvider implements Provider {
     const toolParams: OpenAI.Chat.ChatCompletionTool[] = tools.map((t) => ({
       type: "function", function: { name: t.name, description: t.description, parameters: t.schema },
     }));
+    const rethrow = (e: unknown) => this.rethrow(e);
+    void effort; // local models: no reasoning-effort setting
     return {
       async next(): Promise<Turn> {
         let res: OpenAI.Chat.ChatCompletion;
         try {
-          res = await client.chat.completions.create({
-            model: model.replace(/^ollama\//, ""), messages, tools: toolParams, tool_choice: "auto",
-            ...(effort ? { reasoning_effort: effort === "xhigh" ? "high" : effort } : {}),
-          });
+          res = await client.chat.completions.create({ model: model.replace(/^ollama\//, ""), messages, tools: toolParams, tool_choice: "auto" });
         } catch (e) {
-          if (e instanceof OpenAI.RateLimitError || e instanceof OpenAI.InternalServerError) throw new RateLimitedError((e as Error).message);
-          if (e instanceof OpenAI.APIError && CONFIG_STATUSES.has(e.status as number)) throw new ConfigError(e.status as number, (e as Error).message);
-          throw e;
+          rethrow(e);
         }
-        const choice = res.choices[0]!;
+        const choice = res!.choices[0]!;
         const m = choice.message;
         messages.push(m as OpenAI.Chat.ChatCompletionMessageParam);
         const calls = (m.tool_calls ?? []).filter((c) => c.type === "function").map((c) => {
+          const f = (c as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function;
           let input: unknown;
-          try { input = JSON.parse((c as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function.arguments || "{}"); } catch { input = { __unparsable: true }; }
-          return { id: c.id, name: (c as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function.name, input };
+          try { input = JSON.parse(f.arguments || "{}"); } catch { input = { __unparsable: true }; }
+          return { id: c.id, name: f.name, input };
         });
-        const u = res.usage;
+        const u = res!.usage;
         const cached = u?.prompt_tokens_details?.cached_tokens ?? 0;
         return {
           calls, text: m.content ?? "",
