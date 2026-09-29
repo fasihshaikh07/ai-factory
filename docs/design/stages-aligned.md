@@ -26,6 +26,7 @@ intake → ground → clarify { sketches ×3 → clarifier → ask ≤5 [questio
   → [approval card: spec+plan in one, H unless auto-proceed]     (+ migration approver, Q8)
   → stub commit (D) → author-tests + characterization (A)  → run on base ×2 → lock (D)
   → per task, in plan order: implement (A) ⟲ task verify (D)      [failure ladder GE §2.6; A5 test-defect check]
+    (update 2026-09-29: each task also re-checks earlier tasks' locked tests; a retry keeps its code after a test or build failure at the same rung; see docs/design/implement-loop.md)
   → base moved? rebase (D) → conflict-resolve (A, conditional)
   → integrate (D) → accept (D) → review (L) → deliver (D) → [merge, H always]
   → delivered (still open): revise (G2) / steer (Q3) until merged or closed (RM §2.2)

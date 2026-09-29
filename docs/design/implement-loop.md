@@ -16,6 +16,11 @@
 - A near-miss (one test off, a compile error) costs a small fix instead of a full rewrite. A different approach still comes with the next rung.
 - The diff checks still measure the whole task from its start commit, and each task still ends as exactly one commit on the branch.
 
+**Also fixed on the way**
+
+- **Plans with two or more tasks never finished.** Each task's start commit was taken from whichever other task had finished last, so when task 2 finished, task 1's inputs changed and it ran again, and the two kept re-running each other. Now a task starts from the task just before it in plan order and waits until every earlier task is done.
+- **Two broken builds in a row parked the run.** A failed build marks every expected test as failed, which looked like "the same locked test failed twice". A broken build now names no locked tests, so it climbs the ladder like any other failure.
+
 **What was left out, and why**
 
 - **Integrate sending failures back to a task: deliberately not built.** After change 1, integrate can only fail on flaky tests, on the total diff-size check, or on criteria no task owns. None of those points to one task. And sending a task back changes its commit, which re-runs every later task's coding agent (cost).
