@@ -73,7 +73,7 @@ export function lintDiff(inventory: DesignInventory, diff: DiffFile[]): CheckRes
   for (const f of code) {
     for (const spec of importSpecifiers(f.added.join("\n"))) {
       const key = resolveImport(spec, f.path, layout.aliases);
-      if (!key || !`${key}/`.startsWith(layout.componentsDir)) continue;
+      if (!key || !(`${key}/`.startsWith(layout.componentsDir) || `${key}/`.startsWith(layout.uiDir))) continue;
       checked++;
       if (known.has(key)) continue;
       if (addedPaths.has(key) && !`${key}/`.startsWith(layout.uiDir)) newShared.push(`${f.path} → ${spec} (added in this change)`);

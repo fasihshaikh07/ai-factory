@@ -28,7 +28,7 @@ export const rank = (l: Level): number => LEVELS.indexOf(l);
 export const maxLevel = (a: Level, b: Level): Level => (rank(b) > rank(a) ? b : a);
 
 export type Change = "add" | "modify" | "delete";
-export interface PlannedFile { path: string; change: Change }
+export interface PlannedFile { path: string; change: Change; /** old path of a renamed file (git mode) */ from?: string }
 export interface SizeInput { files: PlannedFile[]; newApp?: boolean }
 
 /** File contents before and after (git mode only). */
@@ -170,8 +170,14 @@ export function sizeChange(input: SizeInput, opts: SizeOptions = {}): SizeResult
     const tokenConfig = TOKEN_CONFIG.test(p) && !NOT_UI.test(p);
     if (!isUiPath(p) && !tokenConfig && !(page && /\.(ts|js|mdx|md)$/.test(p))) continue;
     uiFiles++;
-    const before = probe?.before(p);
+    const before = probe?.before(f.from ?? p);
     const after = probe?.after(p);
+    if (probe && f.from && before !== undefined && before === after) {
+      const was = pageOf(f.from, layout);
+      if (was?.route !== page?.route) hits.push({ level: "tweak", reason: `page moved: ${was ? `route ${was.route}` : f.from} → ${page ? `route ${page.route}` : p}` });
+      else hits.push({ level: "none", reason: `${f.from} moved to ${p} without changes` });
+      continue;
+    }
 
     if (f.change === "delete") {
       hits.push({ level: "tweak", reason: `${p} deleted (a deletion never makes the change bigger than a screen tweak)` });
@@ -242,8 +248,8 @@ export function gitChanges(repo: string, base: string, head: string): PlannedFil
   for (let i = 0; i < parts.length && parts[i]; ) {
     const s = parts[i++]!;
     if (s.startsWith("R") || s.startsWith("C")) {
-      i++; // old path
-      out.push({ path: parts[i++]!, change: s.startsWith("C") ? "add" : "modify" });
+      const from = parts[i++]!;
+      out.push({ path: parts[i++]!, change: s.startsWith("C") ? "add" : "modify", ...(s.startsWith("R") ? { from } : {}) });
     } else out.push({ path: parts[i++]!, change: s === "A" ? "add" : s === "D" ? "delete" : "modify" });
   }
   return out;

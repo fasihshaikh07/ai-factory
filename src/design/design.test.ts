@@ -397,3 +397,19 @@ describe("design: brief cleaner", () => {
     expect(cleanBrief("hello", inv).dropped[0]!.where).toBe("(root)");
   });
 });
+
+describe("design: moved files and a bare ui/ folder", () => {
+  it("does not count a file moved without changes, and finds building blocks in ui/", () => {
+    const files = { ...NEXT_ROOT };
+    const r = gitRepo(files);
+    git(r.dir, "mv", "components/ui", "ui");
+    const after = r.commit({});
+    const res = sizeFromGit(r.dir, r.base, after);
+    expect(res.level).toBe("none");
+    expect(res.reasons[0]).toContain("moved to ui/button.tsx without changes");
+    const inv = buildInventory(gitSource(r.dir, after));
+    expect(inv.layout.uiDir).toBe("ui/");
+    expect(inv.layout.componentsDir).toBe("components/");
+    expect(inv.primitives.map((p) => p.path)).toContain("ui/button.tsx");
+  });
+});

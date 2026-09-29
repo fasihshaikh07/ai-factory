@@ -147,11 +147,12 @@ export function detectLayout(src: FileSource, overrides: Partial<Pick<AppLayout,
     if (resolved !== undefined && has(dirOf(resolved))) { uiDir = dirOf(resolved); notes.push(`building blocks folder from components.json: ${uiDir}`); }
     else {
       const candidates = [...new Set(files.map((f) => /^(.*?components\/ui\/)/.exec(f)?.[1]).filter((x): x is string => !!x))].sort((a, b) => a.length - b.length);
-      uiDir = candidates.find((c) => c === `${sourceRoot}components/ui/`) ?? candidates[0] ?? `${sourceRoot}components/ui/`;
+      const bare = [`${sourceRoot}ui/`, "ui/"].find((d) => files.some((f) => f.startsWith(d) && /\.(tsx|jsx)$/.test(f)));
+      uiDir = candidates.find((c) => c === `${sourceRoot}components/ui/`) ?? candidates[0] ?? bare ?? `${sourceRoot}components/ui/`;
     }
   }
   uiDir = dirOf(norm(uiDir));
-  const componentsDir = uiDir.replace(/ui\/$/, "");
+  const componentsDir = /components\/ui\/$/.test(uiDir) ? uiDir.replace(/ui\/$/, "") : `${sourceRoot}components/`;
 
   const pageKinds: PageKind[] = [];
   if (framework === "next" || framework === "unknown") {
