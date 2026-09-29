@@ -76,13 +76,19 @@ for (const d of ["approve", "reject"] as const) {
   program.command(d).argument("<run>").argument("<hash>", "first characters of the card hash")
     .option("--note <text>", "your risk note (approve)")
     .option("--reason <text>", "why (reject)")
-    .description(`${d} the open card (terminal only)`)
-    .action(async (run: string, hash: string, o: { note?: string; reason?: string }) => {
+    .option("--reject <reason>", "reject instead, with this reason (approve only)")
+    .description(d === "approve"
+      ? "approve the open card, or --reject \"<reason>\" to send the spec and plan back with your reason (terminal only)"
+      : "reject the open card with --reason; the spec and plan are revised and you get a new card (terminal only)")
+    .action(async (run: string, hash: string, o: { note?: string; reason?: string; reject?: string }) => {
       assertTty();
       const l = openRun(run);
-      const r = await decide(l, { decision: d, hashPrefix: hash, data: d === "approve" ? { note: o.note ?? "" } : { reason: o.reason ?? "" } });
-      log(r.kind === "repeat" ? "Already recorded." : `${d}d.`);
-      if (d === "approve" && r.kind === "recorded") await runAndReport(l.runId);
+      const decision = d === "approve" && o.reject !== undefined ? "reject" : d;
+      const data = decision === "approve" ? { note: o.note ?? "" } : { reason: o.reject ?? o.reason ?? "" };
+      const r = await decide(l, { decision, hashPrefix: hash, data });
+      if (r.kind === "repeat") return log("Already recorded.");
+      log(decision === "approve" ? "Approved." : "Rejected. Revising the spec and plan with your reason…");
+      await runAndReport(l.runId);
     });
 }
 

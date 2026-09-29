@@ -287,7 +287,7 @@ Unanswered questions take the recommended option. Low-risk question cards defaul
 factory show-card <run>        # read the card: request, answers, requirements, files, plan, findings
 factory approve <run> <hash> --note "low risk, one controller"
 # or
-factory reject <run> <hash> --reason "don't change the payments module"
+factory approve <run> <hash> --reject "don't change the payments module"   # the spec and plan are revised, you get a new card
 ```
 
 `<run>` can be any unique part of the run ID; `<hash>` is the first characters of the card hash printed on the card.
@@ -320,7 +320,7 @@ The branch `factory/<run>` holds the stub commit (if any), the locked tests, one
 | `factory show-card <run> [--pr]` | Prints the open card (or the PR text). |
 | `factory answer <run> <hash> Q-1=A …` | Answers a question card. Terminal only. |
 | `factory approve <run> <hash> [--note]` | Approves the plan. Terminal only. |
-| `factory reject <run> <hash> --reason` | Rejects the plan (the run parks). Terminal only. |
+| `factory approve <run> <hash> --reject "<reason>"` | Rejects the plan: the spec and plan are revised with your reason and you get a new card. A second rejection parks the run. Terminal only. (`factory reject … --reason` does the same.) |
 | `factory resume <run>` | Continues a run (after a park, crash or restart). |
 | `factory waive-cap <run> <hash>` | Accepts going past a limit (cost, time or attempts) shown on a limit card, and continues. Uses the card's suggestion unless you give `--cost`, `--minutes` or `--attempts`. Terminal only. |
 | `factory pause <run>` / `stop <run>` | Pauses or stops at the next step boundary. |

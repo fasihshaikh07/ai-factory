@@ -71,3 +71,11 @@ export function requireOutput<T>(state: RunState, ledger: Ledger, step: StepKey,
 export function header(runId: string, kind: string, stage: string, inputsHash: string, model?: string) {
   return { kind, schemaVersion: 1 as const, runId, producedBy: { stage, model }, inputsHash, createdAt: new Date().toISOString() };
 }
+
+/** Reasons a human gave when rejecting an approval card, oldest first (typed on a TTY: trusted). */
+export function planRejections(state: RunState): string[] {
+  return state.decisions
+    .filter((d) => d.decision === "reject" && d.cardId.startsWith("approval-"))
+    .map((d) => String((d as unknown as { reason?: string }).reason ?? "").trim())
+    .filter(Boolean);
+}

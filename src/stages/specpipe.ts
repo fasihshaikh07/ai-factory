@@ -5,7 +5,7 @@ import { z } from "zod";
 import { CriticFinding, CurrentBehaviourBody, IntentBody, SpecDraft } from "../contracts/index.js";
 import { checkEvidence } from "../context/tools.js";
 import { failure } from "../gates/engine.js";
-import { requireOutput, readOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
+import { planRejections, requireOutput, readOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
 import { clarifications, type ClarifyResult } from "./clarify.js";
 import { lintSpec, type LintResult } from "./speclint.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
@@ -204,13 +204,32 @@ function problems(c: Checks): string[] {
 /** Final spec: check, repair (one drafter, merged spec + findings) up to 3 times. */
 export const specifyStep: StepDef = {
   key: "specify", stage: "specify", templateVersion: "2",
-  inputs: (s) => (s.steps.get("merge")?.status === "completed" ? { merged: s.steps.get("merge")!.outputs[0] } : undefined),
+  inputs: (s) => (s.steps.get("merge")?.status === "completed" ? { merged: s.steps.get("merge")!.outputs[0], rejections: planRejections(s) } : undefined),
   async run(ctx) {
     const i = inputsOf(ctx);
     const merged = requireOutput<{ spec: Spec; conflicts: string[] }>(ctx.state, ctx.ledger, "merge");
-    let spec = merged.spec;
+    // after a rejection, start from the spec the human saw and repair it with their reason first
+    const rejections = planRejections(ctx.state);
+    let spec = rejections.length ? (readOutput<Spec>(ctx.state, ctx.ledger, "specify") ?? merged.spec) : merged.spec;
     let checks: Checks | undefined;
     let repairs = 0;
+    if (rejections.length) {
+      ctx.log(`specify: revising for your rejection: ${rejections[rejections.length - 1]}`);
+      const r = await think(ctx, {
+        stage: "specify", route: "specify", cls: "read-large", budgetTokens: 30000, tools: ["read_file", "search"], repoTools: toolsFor(ctx), schema: DraftOut, maxTurns: 8,
+        sections: [
+          ...draftSections(ctx, i),
+          S.artifact("spec", "spec", spec),
+          { spec: { id: "rejection", source: "feedback", trust: "trusted", placement: "user" }, content: `The human reviewer rejected the spec and plan built from this spec. Their reasons (latest last):\n${rejections.map((x) => `- ${x}`).join("\n")}` },
+          S.task("Revise this spec so it addresses the reviewer's reasons. Keep requirement IDs stable where the meaning doesn't change. Change nothing the reasons don't need."),
+        ],
+      });
+      if (!r.ok) return r.outcome;
+      const { suggestions: _s0, ...draft } = r.output;
+      void _s0;
+      const stab = Object.fromEntries(spec.requirements.map((q) => [q.id, q.stability]));
+      spec = { ...draft, requirements: draft.requirements.map((q) => ({ ...q, stability: stab[q.id] ?? 1 / 3 })) };
+    }
     for (;;) {
       const c = await checkSpec(ctx, spec, i);
       if (!c.ok) return c.outcome;

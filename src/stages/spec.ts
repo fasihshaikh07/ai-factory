@@ -10,7 +10,7 @@ import { anchorsResolve, planChecks } from "../gates/predicates.js";
 import { isConfigIntegrityPath } from "../gates/protected.js";
 import { runGate } from "../gates/engine.js";
 import { hashJson } from "../util/hash.js";
-import { header, readOutput, requireOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
+import { header, planRejections, readOutput, requireOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
 import { acOwners } from "./build.js";
 import { clarifications, type ClarifyResult } from "./clarify.js";
 import { CriticOut } from "./specpipe.js";
@@ -106,7 +106,7 @@ function complexityOf(plan: PlanT): Complexity {
 
 export const planStep: StepDef = {
   key: "plan", stage: "plan", templateVersion: "1",
-  inputs: (s) => (s.steps.get("specify")?.status === "completed" ? { spec: s.steps.get("specify")!.outputs[0] } : undefined),
+  inputs: (s) => (s.steps.get("specify")?.status === "completed" ? { spec: s.steps.get("specify")!.outputs[0], rejections: planRejections(s) } : undefined),
   async run(ctx) {
     const spec = requireOutput<Spec>(ctx.state, ctx.ledger, "specify");
     const cb = requireOutput<CB>(ctx.state, ctx.ledger, "ground");
@@ -128,6 +128,7 @@ export const planStep: StepDef = {
         S.artifact("spec", "spec", spec),
         S.artifact("cb", "current-behaviour", cb),
         S.artifact("critic", "critic", critic),
+        ...(planRejections(ctx.state).length ? [{ spec: { id: "rejection", source: "feedback" as const, trust: "trusted" as const, placement: "user" as const }, content: `The human reviewer rejected the previous plan. Their reasons (latest last):\n${planRejections(ctx.state).map((x) => `- ${x}`).join("\n")}\nThe plan must address them.` }] : []),
         S.task("Write the plan."),
       ],
     });
@@ -202,19 +203,20 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
 
 export const approveStep: StepDef = {
   key: "approve", stage: "approve", templateVersion: "1",
-  inputs: (s) => (s.steps.get("plan")?.status === "completed" ? { spec: s.steps.get("specify")!.outputs[0], plan: s.steps.get("plan")!.outputs[0] } : undefined),
+  inputs: (s) => (s.steps.get("plan")?.status === "completed" ? { spec: s.steps.get("specify")!.outputs[0], plan: s.steps.get("plan")!.outputs[0], rejections: planRejections(s) } : undefined),
   async run(ctx): Promise<StepOutcome> {
     const planSha = ctx.state.steps.get("plan")!.outputs[0]!;
     const specSha = ctx.state.steps.get("specify")!.outputs[0]!;
-    const bundleSha = ctx.ledger.putJson({ spec: specSha, plan: planSha });
+    // the rejection round is part of the card's identity: a rejected card never comes back unchanged
+    const round = planRejections(ctx.state).length;
+    const bundleSha = ctx.ledger.putJson({ spec: specSha, plan: planSha, round });
     const decision = [...ctx.state.decisions].reverse().find((d) => d.artifactSha === bundleSha);
     if (decision?.decision === "approve") {
       const sha = ctx.ledger.putJson({ header: header(ctx.runId, "approval", "approve", ""), auto: false, reason: "human", decision: "approved", by: decision.by, riskNote: String((decision as unknown as { note?: string }).note ?? ""), bundle: bundleSha });
       return { kind: "done", outputs: { approval: sha } };
     }
-    if (decision?.decision === "reject") {
-      return { kind: "park", reason: `Plan rejected by ${decision.by}: ${String((decision as { reason?: unknown }).reason ?? "")}. Change the request with \`factory steer\` or start a new run.` };
-    }
+    // (a rejection changes the spec and plan inputs, so the spec and plan re-run before we get here again;
+    //  the second rejection parks the run through the caps check)
     const intent = requireOutput<Intent>(ctx.state, ctx.ledger, "intake");
     const md = approvalCard(ctx, {
       intent, spec: requireOutput<Spec>(ctx.state, ctx.ledger, "specify"),

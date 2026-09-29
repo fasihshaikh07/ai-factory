@@ -238,4 +238,28 @@ describe("brownfield slice end to end (fakes)", () => {
     expect(r.status).toBe("parked");
     expect(r.message).toMatch(/Safety check failed twice/);
   });
+
+  it("a rejection revises the spec and plan and shows a new card; a second rejection parks", async () => {
+    const runId = await createRun("Greet people with Hello instead of Hi", "demo", "tester");
+    const ledger = await toApproval(runId);
+    const card1 = replay(ledger.events()).openCard!;
+    const before = modelCalls.length;
+    await decide(ledger, { decision: "reject", hashPrefix: card1.artifactSha.slice(0, 6), by: "ahsan", data: { reason: "Keep 'Hi' for admins" } });
+    const r2 = await execute(runId);
+    expect(r2.status).toBe("waiting");
+    const card2 = replay(ledger.events()).openCard!;
+    expect(card2.kind).toBe("approval");
+    expect(card2.artifactSha).not.toBe(card1.artifactSha);
+    expect(modelCalls.length).toBeGreaterThan(before); // spec + plan re-ran
+    const s = replay(ledger.events());
+    expect(s.steps.get("specify")?.attempts).toBe(2);
+    expect(s.steps.get("plan")?.attempts).toBe(2);
+    expect(s.steps.get("clarify")?.attempts).toBe(1); // earlier steps untouched
+    // an old hash can't approve the new card
+    await expect(decide(ledger, { decision: "approve", hashPrefix: card1.artifactSha.slice(0, 6) })).rejects.toThrow();
+    await decide(ledger, { decision: "reject", hashPrefix: card2.artifactSha.slice(0, 6), by: "ahsan", data: { reason: "still wrong" } });
+    const r3 = await execute(runId);
+    expect(r3.status).toBe("parked");
+    expect(r3.message).toMatch(/Rejected 2 times/);
+  });
 });
