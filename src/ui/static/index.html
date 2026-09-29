@@ -3,22 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark light">
   <title>AI Factory</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
   <script type="module" src="/app.js"></script>
 </head>
 <body>
   <header class="top">
-    <a class="brand" href="#/new"><span class="logo" aria-hidden="true"></span>AI Factory</a>
+    <a class="brand" href="#/new">
+      <span class="mark"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V10l5 3V10l5 3V10l5 3V5h3v15z"/></svg></span>
+      AI Factory
+    </a>
     <nav>
       <a href="#/new" data-nav="new">New run</a>
       <a href="#/runs" data-nav="runs">Runs</a>
       <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
     </nav>
+    <span class="spacer"></span>
+    <span class="local" title="This server only listens on this computer"><span class="live"></span>127.0.0.1</span>
+    <button class="icon-btn" id="theme" type="button" aria-label="Switch light or dark"></button>
   </header>
-  <p class="rule">Decisions are made in your terminal, so no AI or script can approve its own plan.</p>
+  <p class="rule"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Decisions are made in your terminal, so no AI or script can approve its own plan.</p>
   <main id="view" aria-live="polite"></main>
 </body>
 </html>
