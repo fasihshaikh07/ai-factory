@@ -472,6 +472,7 @@ By design it **can't answer questions or approve plans**. Those always happen in
 | Many tests fail in `baseline` | Check whether they fail on your machine too. If yes, they're pre-existing and remembered. If not, compare DB settings (`database:`) and seed data. |
 | `Repo is busy: run … is executing` | Only one run executes per repo at a time. Wait, or `factory stop` the other run. |
 | A run is `parked` | `factory status <run>` shows why; fix it and `factory resume <run>`. |
+| A file (e.g. `scripts/setup.sh`) keeps showing as changed, and comes back after *Discard* | VS Code is using Windows Git on the Ubuntu folder, which can't keep Linux's executable flag. Close that window, run `cd ~/ai-factory && code .` in the Ubuntu terminal (bottom-left must say *WSL: Ubuntu*), and run `git config core.fileMode false` once in the folder. |
 | `.env` not visible in VS Code | It's in `~/.factory/`, not the project. `code ~/.factory/.env`. |
 | Git asks for a password (Windows) | GitHub needs a token, not your password. Re-run `install.ps1`; it connects Ubuntu's git to your Windows GitHub sign-in. |
 | Mac: builds are slow or run out of memory | `colima stop && colima start --cpu 6 --memory 12` |
