@@ -330,6 +330,16 @@ program.command("mcp").description("run the MCP server (for Claude Code: start r
     await startMcpServer();
   });
 
+program.command("ui").option("--port <n>", "port on 127.0.0.1", "4321")
+  .description("local web screens: start runs and watch them (decisions stay in your terminal)")
+  .action(async (o: { port: string }) => {
+    const { createUiServer, listen } = await import("../ui/server.js");
+    const ui = createUiServer();
+    const port = await listen(ui, Number(o.port), o.port === "4321" ? 10 : 1);
+    log(`Factory screens: http://127.0.0.1:${port}/?t=${ui.token}`);
+    log("Only this computer can open it, and only with this link (a new key each time). Decisions are made in your terminal, so no AI or script can approve its own plan. Ctrl+C to stop.");
+  });
+
 program.command("smoke").option("--project <name>", "also check models this project overrides")
   .option("--all", "re-check everything, even checks that passed before")
   .description("cheap real check of every paid connection (a few cents): each model, the key proxy, the coding agent")
