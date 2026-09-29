@@ -1,0 +1,4 @@
+# Shell scripts must have Unix line endings, or bash fails on "\r" (Windows editors add them).
+*.sh text eol=lf
+# Everything else: normalise text files to LF in the repo.
+* text=auto
