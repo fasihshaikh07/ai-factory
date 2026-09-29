@@ -11,7 +11,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').cpSync('src/ui/static', 'dist/ui/static', { recursive: true })\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "factory": "tsx src/cli/index.ts"
