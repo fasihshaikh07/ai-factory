@@ -282,6 +282,9 @@ describe("brownfield slice end to end (fakes)", () => {
     expect(score.steps.find((x) => x.step === "approve")!.human.decisions).toEqual(["approve"]);
     expect(formatRun(score)).toMatch(/implement\/TASK-1 +completed/);
     expect(existsSync(join(ledger.dir, "report.json"))).toBe(true);
+    // created/delivered times and every card asked, for the outcome numbers
+    expect(Date.parse(score.deliveredAt!)).toBeGreaterThanOrEqual(Date.parse(score.createdAt!));
+    expect(score.humanCards).toEqual(["question", "approval"]);
     // accept booted the app next to the test db and replayed the locked probe as evidence
     const app = [...lab.specs.values()].find((sp) => sp.role === "app")!;
     expect(app.cmd).toEqual(["dotnet", "run", "--no-build", "--no-launch-profile", "--project", "src/Api/Api.csproj", "--urls", "http://127.0.0.1:5080"]);

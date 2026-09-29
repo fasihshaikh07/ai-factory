@@ -247,13 +247,15 @@ program.command("logs").argument("<run>")
   });
 
 program.command("report").argument("[run]")
-  .option("--all", "compare steps across all runs")
+  .option("--all", "compare steps across all runs, with outcome numbers on top")
+  .option("--json", "with --all: print {outcomes, stages} as JSON")
   .description("step scorecard: first-time pass, retries and why, cost, time, tokens, gates, what you changed")
-  .action(async (run: string | undefined, o: { all?: boolean }) => {
-    const { formatAll, formatRun, scoreRun } = await import("../report.js");
+  .action(async (run: string | undefined, o: { all?: boolean; json?: boolean }) => {
+    const { formatAll, formatOutcomes, formatRun, outcomes, scoreRun, stageStats } = await import("../report.js");
     if (o.all || !run) {
       const runs = Ledger.listRuns().map((id) => { try { return scoreRun(Ledger.open(id)); } catch { return undefined; } }).filter((r): r is NonNullable<typeof r> => !!r);
-      return log(runs.length ? formatAll(runs) : "No runs yet.");
+      if (o.json) return log(JSON.stringify({ outcomes: outcomes(runs), stages: stageStats(runs) }, null, 2));
+      return log(runs.length ? `${formatOutcomes(outcomes(runs))}\n\n${formatAll(runs)}` : "No runs yet.");
     }
     log(formatRun(scoreRun(openRun(run))));
   });

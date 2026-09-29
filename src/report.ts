@@ -33,6 +33,12 @@ export interface RunScore {
   firstTimePassRate: number;
   topCost: { step: string; costUsd: number }[];
   steps: StepScore[];
+  /** run.created time */
+  createdAt?: string;
+  /** first run.delivered time */
+  deliveredAt?: string;
+  /** kind of every card a human was asked (question, approval, cap, ...), once per card */
+  humanCards?: string[];
 }
 
 export function stageOf(step: string): string {
@@ -57,6 +63,8 @@ export function scoreRun(ledger: Ledger): RunScore {
   };
   const openAttempts = new Map<string, number>(); // "step/attempt" → start ms
   const cardStep = new Map<string, string>();      // cardId → step
+  const cardKinds = new Map<string, string>();     // cardId → kind, every card incl. cap cards
+  let deliveredAt: string | undefined;
 
   for (const ev of events) {
     const d = (ev.data ?? {}) as Record<string, unknown>;
@@ -90,7 +98,9 @@ export function scoreRun(ledger: Ledger): RunScore {
         if (d.passed) g.passed++; else { g.failed++; g.failedIds.push(String(d.gateId)); }
         break;
       }
+      case "run.delivered": deliveredAt ??= ev.ts; break;
       case "human.requested":
+        if (!cardKinds.has(String(d.cardId))) cardKinds.set(String(d.cardId), String(d.kind ?? "other"));
         if (typeof d.step === "string") { cardStep.set(String(d.cardId), d.step); get(d.step).human.cards++; }
         break;
       case "human.decided": {
@@ -133,6 +143,9 @@ export function scoreRun(ledger: Ledger): RunScore {
     firstTimePassRate: done.length ? done.filter((s) => s.firstTimePass).length / done.length : 0,
     topCost: [...steps].sort((a, b) => b.costUsd - a.costUsd).slice(0, 3).filter((s) => s.costUsd > 0).map((s) => ({ step: s.step, costUsd: s.costUsd })),
     steps,
+    createdAt: state.info.createdAt,
+    deliveredAt,
+    humanCards: [...cardKinds.values()],
   };
 }
 
@@ -167,20 +180,112 @@ export function formatRun(r: RunScore): string {
   return lines.filter((l, i) => l !== "" || i === 4).join("\n");
 }
 
-/** Across runs, per stage: how often it passes first time, what it costs, what breaks it. */
-export function formatAll(runs: RunScore[]): string {
+export interface StageStats {
+  stage: string;
+  /** step instances across runs ("implement" counts once per task) */
+  count: number;
+  /** completed first time ÷ completed; 0 when none completed */
+  firstTimePassRate: number;
+  avgCostUsd: number;
+  avgActiveSec: number;
+  topProblem?: { reason: string; count: number };
+}
+
+/** Per stage across runs, most expensive first. */
+export function stageStats(runs: RunScore[]): StageStats[] {
   const by = new Map<string, StepScore[]>();
   for (const r of runs) for (const s of r.steps) by.set(s.stage, [...(by.get(s.stage) ?? []), s]);
+  return [...by.entries()].sort((a, b) => b[1].reduce((n, s) => n + s.costUsd, 0) - a[1].reduce((n, s) => n + s.costUsd, 0)).map(([stage, ss]) => {
+    const done = ss.filter((s) => s.outcome === "completed");
+    const reasons = ss.flatMap((s) => [...s.gates.failedIds, ...s.retryReasons.map((r) => r.split(":")[0]!)]);
+    const top = [...new Set(reasons)].map((r) => [r, reasons.filter((x) => x === r).length] as const).sort((a, b) => b[1] - a[1])[0];
+    return {
+      stage, count: ss.length, firstTimePassRate: done.length ? done.filter((s) => s.firstTimePass).length / done.length : 0,
+      avgCostUsd: ss.reduce((n, s) => n + s.costUsd, 0) / ss.length, avgActiveSec: ss.reduce((n, s) => n + s.activeSec, 0) / ss.length,
+      ...(top ? { topProblem: { reason: top[0], count: top[1] } } : {}),
+    };
+  });
+}
+
+/** Across runs, per stage: how often it passes first time, what it costs, what breaks it. */
+export function formatAll(runs: RunScore[]): string {
   const lines = [
     `${runs.length} runs · total ${money(runs.reduce((n, r) => n + r.costUsd, 0))}`,
     "",
     `${"stage".padEnd(16)} ${"runs".padEnd(5)} ${"1st-pass".padEnd(9)} ${"avg cost".padStart(9)} ${"avg time".padStart(9)}  most common problem`,
   ];
-  for (const [stage, ss] of [...by.entries()].sort((a, b) => b[1].reduce((n, s) => n + s.costUsd, 0) - a[1].reduce((n, s) => n + s.costUsd, 0))) {
-    const done = ss.filter((s) => s.outcome === "completed");
-    const reasons = ss.flatMap((s) => [...s.gates.failedIds, ...s.retryReasons.map((r) => r.split(":")[0]!)]);
-    const top = [...new Set(reasons)].map((r) => [r, reasons.filter((x) => x === r).length] as const).sort((a, b) => b[1] - a[1])[0];
-    lines.push(`${stage.padEnd(16)} ${String(ss.length).padEnd(5)} ${`${done.length ? Math.round((done.filter((s) => s.firstTimePass).length / done.length) * 100) : 0}%`.padEnd(9)} ${money(ss.reduce((n, s) => n + s.costUsd, 0) / ss.length).padStart(9)} ${`${Math.round(ss.reduce((n, s) => n + s.activeSec, 0) / ss.length)}s`.padStart(9)}  ${top ? `${top[0]} (${top[1]}×)` : "-"}`);
+  for (const t of stageStats(runs)) {
+    lines.push(`${t.stage.padEnd(16)} ${String(t.count).padEnd(5)} ${`${Math.round(t.firstTimePassRate * 100)}%`.padEnd(9)} ${money(t.avgCostUsd).padStart(9)} ${`${Math.round(t.avgActiveSec)}s`.padStart(9)}  ${t.topProblem ? `${t.topProblem.reason} (${t.topProblem.count}×)` : "-"}`);
   }
   return lines.join("\n");
+}
+
+// ---------- outcomes across runs ----------
+
+export interface Outcomes {
+  runs: number;
+  delivered: number;
+  parked: number;
+  waiting: number;
+  running: number;
+  /** all spend, parked and unfinished runs included */
+  totalCostUsd: number;
+  /** totalCostUsd ÷ delivered; undefined when none delivered */
+  costPerDeliveredUsd?: number;
+  /** what a delivered run cost on its own, on average */
+  avgDeliveredRunCostUsd?: number;
+  /** run.created → run.delivered, minutes; includes time waiting for people */
+  wallMin: { median?: number; worst?: number };
+  /** machine time of delivered runs, minutes */
+  activeMinMedian?: number;
+  /** cards a human answered per delivered run (question, approval, cap, ...) */
+  humanStopsPerDelivered?: number;
+  /** delivered runs whose only card was the plan approval (the minimum by design) */
+  approvalOnlyShare?: number;
+  /** across all runs: finished steps that passed first time */
+  firstTimePass: { passed: number; finished: number; rate?: number };
+}
+
+const median = (xs: number[]): number | undefined => {
+  if (!xs.length) return undefined;
+  const s = [...xs].sort((a, b) => a - b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1]! + s[m]!) / 2;
+};
+
+/** Delivery numbers across runs, from RunScores only. */
+export function outcomes(runs: RunScore[]): Outcomes {
+  const delivered = runs.filter((r) => r.deliveredAt !== undefined || r.status === "delivered");
+  const total = runs.reduce((n, r) => n + r.costUsd, 0);
+  const wall = delivered.filter((r) => r.createdAt && r.deliveredAt).map((r) => (Date.parse(r.deliveredAt!) - Date.parse(r.createdAt!)) / 60_000);
+  const withCards = delivered.filter((r) => r.humanCards);
+  const finished = runs.flatMap((r) => r.steps).filter((s) => s.outcome === "completed");
+  const passed = finished.filter((s) => s.firstTimePass).length;
+  return {
+    runs: runs.length, delivered: delivered.length,
+    parked: runs.filter((r) => r.status === "parked").length,
+    waiting: runs.filter((r) => r.status === "waiting").length,
+    running: runs.filter((r) => r.status === "running").length,
+    totalCostUsd: total,
+    costPerDeliveredUsd: delivered.length ? total / delivered.length : undefined,
+    avgDeliveredRunCostUsd: delivered.length ? delivered.reduce((n, r) => n + r.costUsd, 0) / delivered.length : undefined,
+    wallMin: { median: median(wall), worst: wall.length ? Math.max(...wall) : undefined },
+    activeMinMedian: median(delivered.map((r) => r.activeMin)),
+    humanStopsPerDelivered: withCards.length ? withCards.reduce((n, r) => n + r.humanCards!.length, 0) / withCards.length : undefined,
+    approvalOnlyShare: withCards.length ? withCards.filter((r) => r.humanCards!.length === 1 && r.humanCards![0] === "approval").length / withCards.length : undefined,
+    firstTimePass: { passed, finished: finished.length, rate: finished.length ? passed / finished.length : undefined },
+  };
+}
+
+export function formatOutcomes(o: Outcomes): string {
+  const opt = (n: number | undefined, f: (n: number) => string) => (n === undefined ? "-" : f(n));
+  const min = (n: number) => `${n.toFixed(n < 10 ? 1 : 0)} min`;
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+  return [
+    "Outcomes",
+    `  Delivered             ${o.delivered} of ${o.runs} runs (${o.parked} parked, ${o.waiting} waiting, ${o.running} running)`,
+    `  Cost per delivered    ${opt(o.costPerDeliveredUsd, money)} (all spend ${money(o.totalCostUsd)}, parked runs included) · a delivered run alone ${opt(o.avgDeliveredRunCostUsd, money)}`,
+    `  Request → branch      wall-clock, incl. waiting for people: median ${opt(o.wallMin.median, min)}, worst ${opt(o.wallMin.worst, min)} · machine time: median ${opt(o.activeMinMedian, min)}`,
+    `  Human stops           ${opt(o.humanStopsPerDelivered, (n) => n.toFixed(1))} cards per delivered run · only the plan approval: ${opt(o.approvalOnlyShare, pct)}`,
+    `  First-time pass       ${opt(o.firstTimePass.rate, pct)} of ${o.firstTimePass.finished} finished steps`,
+  ].join("\n");
 }
