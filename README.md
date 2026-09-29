@@ -84,7 +84,7 @@ flowchart TD
 | author tests | A coding agent writes one test per acceptance criterion. The factory runs them on the old code **twice**; they must fail for the right reason. Then they're locked. | AI + factory |
 | implement ⟲ verify | A coding agent works on one task at a time in a sealed container. The factory then builds, runs the tests, and checks the change stayed in scope, didn't touch locked tests, added no skips or secrets. Each task must also keep earlier tasks' tests passing. Failures loop back with the exact errors; if only tests or the build failed, the retry fixes the existing change instead of starting over. | AI + factory |
 | integrate / accept | Full test suite; every locked test must have run and passed; no new failures vs the baseline. | Factory |
-| review | A reviewer (a different model family when an OpenAI key is set) reads the diff. Whether a finding blocks is decided by code. | AI + code |
+| review | A reviewer (a different model family when an OpenAI key is set) reads the diff, with an OWASP Top 10 checklist for security. Whether a finding blocks is decided by code. | AI + code |
 | deliver | Secret scan of every commit, an evidence manifest commit, and a PR (or a local branch). | Factory |
 
 When something keeps failing, the factory climbs a fixed ladder (retry with the errors → more effort → stronger model) and then **parks** the run for you. Hard limits on attempts, spend and time stop runaway runs; `factory status <run>` shows the running cost.
@@ -432,6 +432,7 @@ The request can come from **any one** of a typed prompt, `--file` or `--jira`, o
 | `factory pause <run>` / `stop <run>` | Pauses or stops at the next step boundary. |
 | `factory steer <run> <file>` | Records a requirement change (applying it isn't built yet). |
 | `factory verify-evidence <run>` | Re-runs every gate decision from the ledger. |
+| `factory report [run] [--all] [--json]` | Step scorecard for one run. Across runs (`--all`): outcome numbers first (delivered, cost per delivered change, time from request to branch, human stops, first-time pass), then a per-stage table. `--all --json` prints `{outcomes, stages}`. From the ledgers only, no AI. |
 | `factory design inventory <repo>` | Scans a web app's look: theme settings, shared components and how often each is used, pages. No AI. |
 | `factory design size` | Says how big a UI change is (no UI, screen tweak, new screen, or a change to the shared look), from a plan's file list or a git diff, with reasons. |
 | `factory design lint` | Checks a change uses only the theme's colours and the app's existing components, and adds no new shared components. |
