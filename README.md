@@ -24,6 +24,7 @@ factory start "Return 404 instead of 500 when an order ID doesn't exist" --proje
 - [Installation](#installation) · [Why Ubuntu on Windows?](#why-ubuntu-wsl-on-windows)
 - [Add a project](#add-a-project)
 - [Your first run](#your-first-run)
+- [Use it on your own .NET repo](#use-it-on-your-own-net-repo)
 - [Command reference](#command-reference)
 - [Use it from Claude Code](#use-it-from-claude-code)
 - [Safety model](#safety-model)
@@ -312,6 +313,73 @@ factory verify-evidence <run>  # re-check every recorded decision
 The branch `factory/<run>` holds the stub commit (if any), the locked tests, one commit per task and one evidence-manifest commit.
 
 **If a run parks**, `factory status <run>` says why (cap hit, a check failed twice, a locked test keeps failing…). Fix the cause and run `factory resume <run>`, accept a higher limit with `factory waive-cap`, or start a new run.
+
+---
+
+## Use it on your own .NET repo
+
+Six commands, once setup is done and your key is in `~/.factory/.env`.
+
+**1. Add the project** (free)
+
+```bash
+factory init /mnt/c/Users/<you>/source/repos/shop-api     # a repo on your Windows drive
+factory init https://github.com/<org>/shop-api.git        # or a git URL (Bitbucket works too)
+```
+
+It copies the repo into Ubuntu (`~/code/shop-api`; your Windows copy is untouched), detects the solution, the .NET version, Postgres and any database login the tests use (that password goes into `~/.factory/.env`), hides frontend folders from the AI, writes `~/.factory/projects/shop-api.yaml`, and warns about anything it can't handle yet.
+
+**2. Look over the config** (2 minutes): `code ~/.factory/projects/shop-api.yaml`
+
+- `baseBranch`: the branch changes start from.
+- `accept.env`: flags the app needs to start properly, e.g. one that makes it run its database migrations:
+  ```yaml
+  accept:
+    env:
+      RUN_MIGRATIONS: "true"
+  ```
+- Optional, for cheap trial runs: `policy: { retryBudget: 2 }`.
+
+**3. Baseline** (free, a few minutes)
+
+```bash
+factory baseline --project shop-api
+```
+
+The build must be ok. Tests that already fail are fine: they're remembered, and a run is only blamed for new failures.
+
+**4. Cheap check** (a few cents)
+
+```bash
+factory smoke --project shop-api
+```
+
+**5. Run a change**
+
+```bash
+factory start "what you want changed, in plain words" --project shop-api --max-cost 5
+factory logs <run> --follow        # in a second terminal
+```
+
+Answer the question card if one appears, read the approval card, then approve.
+
+**6. Get the result**
+
+The change is on branch `factory/<run>` in the Ubuntu copy. Automatic PRs support GitHub only for now (set `forge:` in the config); otherwise push the branch and open the PR yourself with the text the factory wrote:
+
+```bash
+git -C ~/code/shop-api push origin factory/<run>
+factory show-card <run> --pr       # paste this as the PR description
+```
+
+### What the repo needs (POC)
+
+- .NET on Linux: .NET 6+ (not .NET Framework, WPF or WinForms).
+- Tests run with `dotnet test`.
+- Postgres, or no database. The factory starts a throwaway Postgres for the tests.
+- **Refused for now:** SQL Server; tests that start their own containers (Testcontainers).
+- **Not provided yet:** other services the tests need (Redis, queues…), private NuGet feeds.
+- Endpoints behind a login: acceptance evidence comes from the locked tests only (test users aren't built yet).
 
 ---
 
