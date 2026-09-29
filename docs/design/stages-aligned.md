@@ -77,7 +77,7 @@ Format: **purpose** · runner / model · inputs → output · gate(s) after · h
 | critic | Adversarial rubric (8 items incl. D4 state, D5 blast radius, D3 literals) | L GPT (other family), fresh, effort high | spec + intent + current-behaviour (no drafts) → findings | blocking derived by code from severity (GE §2.5) | – | 30K (SS) | LR |
 | round trip | Restate from spec only; detect dropped/invented | L restater Sonnet 5 + aligner Haiku/local + D | spec, intent spans → dropped spans, inventions | round trip clean (GE §2.5) | – | 2 × 15K (SS) | LR |
 | spec gate | Auto-proceed or fold into the approval card | D | all of the above | auto only if all SS §5 conditions hold; repairs ≤3 then findings go on the card | → approval card | – | Core |
-| design* (UI only) | Flow (Mermaid) + React mock; REQ↔screen map | **Undecided** (see §3 C10): LR read-large per CB §2.2/§2.4 vs wrapped agent per CD §14; model unspecified | spec (+ Figma/images, untrusted) → `design` | no unmapped REQs, no orphan screens (GE §2.5) | on the approval card (mockUrl) | read-large 30K | LR (reading) |
+| design* (UI only) — **update 2026-09-29: the scripted part (UI change size, style checks, brief cleaner) is built; see `docs/design-step.md`** | Flow (Mermaid) + React mock; REQ↔screen map | **Undecided** (see §3 C10): LR read-large per CB §2.2/§2.4 vs wrapped agent per CD §14; model unspecified | spec (+ Figma/images, untrusted) → `design` | no unmapped REQs, no orphan screens (GE §2.5) | on the approval card (mockUrl) | read-large 30K | LR (reading) |
 
 ### Planning and approval
 | Stage | Purpose | Runner / model | Inputs → output | Gate after | Human | Budget | Trust |

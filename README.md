@@ -102,6 +102,7 @@ When something keeps failing, the factory climbs a fixed ladder (retry with the 
 | Test lab: restore → offline build → tests next to a throwaway Postgres | Review repair loop (blocking findings park the run); unlock card for a wrong test |
 | Ledger, crash-resume, failure ladder, cost caps, verify-evidence | URL-prefix package filter (today: allowlist by host name) |
 | GitHub PR delivery (optional) | Bitbucket PR delivery (today: branch ready locally) |
+| Design toolkit for web apps (no AI): how big a UI change is, shown on the approval card; style checks; `factory design` | The design mock step and screenshots; the design checks aren't called by any step yet |
 
 **Refused for now:** SQL Server, repos whose tests start their own containers (Testcontainers), Windows-only projects (WPF/WinForms/.NET Framework), Git LFS, submodules.
 
@@ -422,6 +423,12 @@ The request can come from **any one** of a typed prompt, `--file` or `--jira`, o
 | `factory pause <run>` / `stop <run>` | Pauses or stops at the next step boundary. |
 | `factory steer <run> <file>` | Records a requirement change (applying it isn't built yet). |
 | `factory verify-evidence <run>` | Re-runs every gate decision from the ledger. |
+| `factory design inventory <repo>` | Scans a web app's look: theme settings, shared components and how often each is used, pages. No AI. |
+| `factory design size` | Says how big a UI change is (no UI, screen tweak, new screen, or a change to the shared look), from a plan's file list or a git diff, with reasons. |
+| `factory design lint` | Checks a change uses only the theme's colours and the app's existing components, and adds no new shared components. |
+| `factory design brief <file>` | Cleans a design brief from outside (a Figma export, a brand guide) down to plain fields and shows what it dropped. |
+
+Run any `factory design` command with `--help` for its options.
 
 Decisions (`answer`, `approve`, `reject`, `steer`) only work from an interactive terminal, so no script, plugin or AI can approve its own plan.
 
@@ -493,6 +500,7 @@ ai-factory/
 │   ├── context/     context builder: snapshot, read-only tools, repo map, redaction
 │   ├── runners/     model runners: own read-only loop (API), Claude agent in a container, proxy
 │   ├── stages/      the pipeline steps and the executor
+│   ├── design/      design toolkit: app scan, UI change size, style checks, brief cleaner
 │   ├── config/      project config and secrets loading
 │   └── cli/         the `factory` command
 ├── scripts/setup.sh  one-command setup (macOS, Ubuntu, WSL)
@@ -502,6 +510,8 @@ ai-factory/
 │   └── proxy/       the egress proxy (adds API keys, allowlists package feeds)
 └── docs/
     ├── design/      the design documents
+    ├── design-step.md  where the design step plugs in, and what's still to wire
+    ├── design-eval/ how the design toolkit scored on real Next.js commits
     └── project-example.yaml
 ```
 
@@ -533,7 +543,7 @@ npm run build
 
 ## Design docs
 
-Start with [`docs/design/BUILD-BRIEF.md`](docs/design/BUILD-BRIEF.md), then [`docs/design/stages-aligned.md`](docs/design/stages-aligned.md) (the source of truth for stages). Component designs: run manager, gate engine, verify runner, context builder, adapters.
+Start with [`docs/design/BUILD-BRIEF.md`](docs/design/BUILD-BRIEF.md), then [`docs/design/stages-aligned.md`](docs/design/stages-aligned.md) (the source of truth for stages). Component designs: run manager, gate engine, verify runner, context builder, adapters. The design step for UI changes is in [`docs/design-step.md`](docs/design-step.md), with its test results in [`docs/design-eval/results.md`](docs/design-eval/results.md).
 
 ---
 
