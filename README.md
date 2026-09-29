@@ -267,6 +267,8 @@ Tests that already fail are fine: they're remembered, and a run is only blamed f
 
 ## Your first run
 
+All `factory` commands run in the **Ubuntu terminal** on Windows (any terminal on Mac/Linux); see *Where to type these* below.
+
 **Spend cents before dollars.** After adding your key, check every paid connection first:
 
 ```bash
@@ -319,6 +321,8 @@ The branch `factory/<run>` holds the stub commit (if any), the locked tests, one
 ## Use it on your own .NET repo
 
 Six commands, once setup is done and your key is in `~/.factory/.env`.
+
+> **Where to type these:** on Windows, in the **Ubuntu terminal** (Start menu → Ubuntu; the prompt looks like `you@machine:~$`), or in VS Code opened with `wsl -d Ubuntu -- code ~/ai-factory` (bottom-left says *WSL: Ubuntu*). On Mac or Linux, any terminal. PowerShell and CMD can't find `factory`. Windows paths are written the Linux way: `C:\Users\you\repos\x` → `/mnt/c/Users/you/repos/x`.
 
 **1. Add the project** (free)
 
