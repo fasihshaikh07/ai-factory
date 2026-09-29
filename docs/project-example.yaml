@@ -18,3 +18,8 @@ agentEnv:                          # dummy values so the app compiles where the 
   ConnectionStrings__DefaultConnection: "Host=localhost;Database=dummy;Username=dummy;Password=dummy"
 # referenceDb: { connEnv: SHOP_READONLY_DB }   # read-only, discover only; value lives in ~/.factory/.env
 # forge: { kind: github, repo: owner/name, tokenEnv: GITHUB_TOKEN }   # leave out until you want real PRs
+# Prices (USD per million tokens) for models the factory has no built-in price for, e.g. the GPT model
+# used for the critic and review when OPENAI_API_KEY is set. Without a price, cost is estimated at
+# $10 in / $50 out, which is deliberately high and can hit the run's cost limit early.
+# prices:
+#   gpt-5.5: { input: <from OpenAI's pricing page>, output: <...>, cacheRead: <...> }

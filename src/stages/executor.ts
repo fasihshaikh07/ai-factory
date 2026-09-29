@@ -14,7 +14,7 @@ import { applyExpiredDeadline } from "../ledger/human.js";
 import { HUMAN_WRITER, Ledger } from "../ledger/ledger.js";
 import { canSkip, eventKey, inputsHash, replay, splitKey, type RunState } from "../ledger/state.js";
 import { assertSupportedPath } from "../util/paths.js";
-import { sha256 } from "../util/hash.js";
+import { hashJson, sha256 } from "../util/hash.js";
 import { REPO_ROOT } from "../runners/netinfra.js";
 import { setPrice } from "../runners/pricing.js";
 import type { StepContext, StepDef, StepOutcome } from "./framework.js";
@@ -90,7 +90,7 @@ function attemptHistory(ledger: Ledger, step: string): AttemptRecord[] {
   const evs = all.filter((e) => e.key && splitKey(e.key).step === step);
   const lastDone = Math.max(-1, ...evs.filter((e) => e.type === "step.completed").map((e) => e.seq));
   // a human raising the attempt limit starts the ladder fresh
-  const lastRaise = Math.max(-1, ...all.filter((e) => e.type === "human.decided" && (e.data as { decision?: string; extraAttempts?: number })?.decision === "raise-cap" && typeof (e.data as { extraAttempts?: number }).extraAttempts === "number").map((e) => e.seq));
+  const lastRaise = Math.max(-1, ...all.filter((e) => e.type === "human.decided" && (e.data as { decision?: string; extraAttempts?: number })?.decision === "waive-cap" && typeof (e.data as { extraAttempts?: number }).extraAttempts === "number").map((e) => e.seq));
   const since = Math.max(lastDone, lastRaise);
   return evs.filter((e) => e.type === "step.failed" && e.seq > since && !(e.data as { parked?: boolean })?.parked)
     .map((e) => e.data as unknown as AttemptRecord);
@@ -135,7 +135,22 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
       if (typeof state.status === "object" || state.status === "delivered") return { status: String(typeof state.status === "object" ? `closed: ${state.status.closed}` : state.status), message: "Nothing to do." };
       if (state.openCard) return { status: "waiting", message: `Waiting for you: factory show-card ${runId}` };
       const cap = checkCaps(state);
-      if (cap) { await ledger.append({ type: "run.parked", data: { reason: cap } }, writer); return { status: "parked", message: cap }; }
+      if (cap && !cap.waivable) { await ledger.append({ type: "run.parked", data: { reason: cap.reason } }, writer); return { status: "parked", message: cap.reason }; }
+      if (cap) {
+        // cost, time and attempts: a hash-bound card; a human decides on the terminal
+        const artifactSha = hashJson({ kind: cap.kind, reason: cap.reason, seq: state.lastSeq });
+        const cardId = `cap-${artifactSha.slice(0, 8)}`;
+        const p = cap.proposal ?? {};
+        ledger.writeCard(cardId, [
+          `# Limit reached: ${cap.reason}`, ``,
+          `Run ${runId} · spent $${state.costUsd.toFixed(2)} · ${Math.round(state.activeMs / 60_000)} min active`, ``,
+          `To continue with a higher limit (suggested):`,
+          `  factory waive-cap ${runId} ${artifactSha.slice(0, 8)}${p.costUsd ? ` --cost ${p.costUsd}` : ""}${p.wallMinutes ? ` --minutes ${p.wallMinutes}` : ""}${p.extraAttempts ? ` --attempts ${p.extraAttempts}` : ""}`,
+          `Or stop here: factory stop ${runId}`, ``, `Card hash: ${artifactSha.slice(0, 8)}`,
+        ].join("\n"));
+        await ledger.append({ type: "human.requested", data: { cardId, kind: "cap", artifactSha, proposal: p, reason: cap.reason } }, writer);
+        return { status: "waiting", message: `${cap.reason}. Decide with: factory show-card ${runId}` };
+      }
 
       const n = next(state, ledger, project);
       if (n.kind === "done") return { status: String(state.status), message: "All steps done." };

@@ -7,7 +7,7 @@ import { decide, DecisionError, applyExpiredDeadline } from "./human.js";
 import { FencedOutError, HUMAN_WRITER, Ledger, LedgerCorruptError } from "./ledger.js";
 import { runSink } from "./sinks.js";
 import { canSkip, eventKey, inputsHash, replay } from "./state.js";
-import { checkCaps } from "./caps.js";
+import { checkCaps, currentCostCap } from "./caps.js";
 
 beforeEach(() => {
   process.env.FACTORY_HOME = mkdtempSync(join(tmpdir(), "factory-test-"));
@@ -156,44 +156,67 @@ describe("sinks and caps", () => {
   it("parks on cost and attempts", async () => {
     const l = await newRun();
     await l.append({ type: "usage", data: { "gen_ai.usage.cost_usd": 11 } }, HUMAN_WRITER);
-    expect(checkCaps(replay(l.events()))).toMatch(/Cost cap/);
+    expect(checkCaps(replay(l.events()))?.reason).toMatch(/Cost limit/);
     const l2 = await newRun("run-2");
     for (let i = 1; i <= 6; i++) {
       await l2.append({ type: "step.started", key: `implement/TASK-1/${i}` }, HUMAN_WRITER);
       await l2.append({ type: "step.failed", key: `implement/TASK-1/${i}` }, HUMAN_WRITER);
     }
-    expect(checkCaps(replay(l2.events()))).toMatch(/6 attempts/);
+    expect(checkCaps(replay(l2.events()))).toMatchObject({ kind: "attempts", waivable: true, proposal: { extraAttempts: 3 } });
   });
 });
 
-describe("audit fixes: cost cap inputs", () => {
-  it("records class from intake and size from plan", async () => {
-    const l = Ledger.create("run-caps");
+describe("cost limits", () => {
+  async function run(id: string) {
+    const l = Ledger.create(id);
     await l.append({ type: "run.created", data: { mode: "brownfield", project: "p" } }, HUMAN_WRITER);
-    await l.append({ type: "step.started", key: "intake/1" }, HUMAN_WRITER);
-    await l.append({ type: "step.completed", key: "intake/1", data: { changeClass: "bugfix" } }, HUMAN_WRITER);
-    expect(replay(l.events()).info.changeClass).toBe("bugfix");
-    await l.append({ type: "usage", data: { "gen_ai.usage.cost_usd": 5.5 } }, HUMAN_WRITER);
-    expect(checkCaps(replay(l.events()))).toMatch(/\$5\.50 of \$5/);
-    await l.append({ type: "step.started", key: "plan/1" }, HUMAN_WRITER);
-    await l.append({ type: "step.completed", key: "plan/1", data: { complexity: "L" } }, HUMAN_WRITER);
-    expect(replay(l.events()).info.complexity).toBe("L");
-    expect(checkCaps(replay(l.events()))).toBeUndefined(); // L cap is $20
-  });
-});
+    return l;
+  }
+  const spend = (l: Ledger, usd: number) => l.append({ type: "usage", data: { "gen_ai.usage.cost_usd": usd } }, HUMAN_WRITER);
+  const complete = async (l: Ledger, step: string, data: Record<string, unknown>) => {
+    await l.append({ type: "step.started", key: `${step}/1` }, HUMAN_WRITER);
+    await l.append({ type: "step.completed", key: `${step}/1`, data }, HUMAN_WRITER);
+  };
 
-describe("raising a cap", () => {
-  it("lets a parked run continue under the new limit", async () => {
-    const l = Ledger.create("run-raise");
-    await l.append({ type: "run.created", data: { mode: "brownfield", project: "p", runId: "run-raise" } }, HUMAN_WRITER);
-    await l.append({ type: "step.started", key: "intake/1" }, HUMAN_WRITER);
-    await l.append({ type: "step.completed", key: "intake/1", data: { changeClass: "bugfix" } }, HUMAN_WRITER);
-    await l.append({ type: "usage", data: { "gen_ai.usage.cost_usd": 6 } }, HUMAN_WRITER);
-    expect(checkCaps(replay(l.events()))).toMatch(/raise-cap run-raise --cost/);
-    await l.append({ type: "human.decided", data: { cardId: "caps", decision: "raise-cap", by: "ahsan", artifactSha: "", costUsd: 12 } }, HUMAN_WRITER);
+  it("before plan: never below the medium $10, even for a bugfix", async () => {
+    const l = await run("cap-1");
+    await complete(l, "intake", { changeClass: "bugfix" });
+    expect(replay(l.events()).info.changeClass).toBe("bugfix");
+    await spend(l, 6);
+    expect(checkCaps(replay(l.events()))).toBeUndefined();
+    await spend(l, 4.5);
+    expect(checkCaps(replay(l.events()))).toMatchObject({ kind: "cost", waivable: true, proposal: { costUsd: 20 } });
+  });
+
+  it("after plan: spend so far + the size's cap (at least $10)", async () => {
+    const l = await run("cap-2");
+    await complete(l, "intake", { changeClass: "feature" });
+    await spend(l, 4);
+    await complete(l, "plan", { complexity: "L" });
+    expect(currentCostCap(replay(l.events()))).toBe(24); // $4 + $20
+    await spend(l, 19);
+    expect(checkCaps(replay(l.events()))).toBeUndefined();
+    const l2 = await run("cap-3");
+    await spend(l2, 3);
+    await complete(l2, "plan", { complexity: "S" });
+    expect(currentCostCap(replay(l2.events()))).toBe(13); // $3 + max($5, $10)
+  });
+
+  it("a hash-bound waiver raises the limit; it isn't counted as a gate waiver", async () => {
+    const l = await run("cap-4");
+    await spend(l, 11);
+    await l.append({ type: "human.requested", data: { cardId: "cap-x", kind: "cap", artifactSha: "c".repeat(64), proposal: { costUsd: 20 } } }, HUMAN_WRITER);
+    await expect(decide(l, { decision: "waive-cap", hashPrefix: "dddd", data: { costUsd: 20 } })).rejects.toThrow(/doesn't match/);
+    await decide(l, { decision: "waive-cap", hashPrefix: "cccc", by: "ahsan", data: { costUsd: 20 } });
     const s = replay(l.events());
+    expect(s.openCard).toBeUndefined();
     expect(checkCaps(s)).toBeUndefined();
-    expect(s.decisions).toHaveLength(0); // not a waiver: doesn't count toward the waiver limit
     expect(s.waivers).toBe(0);
+  });
+
+  it("waivers, rejections and interruptions still park", async () => {
+    const l = await run("cap-5");
+    for (let i = 0; i < 2; i++) await l.append({ type: "human.decided", data: { cardId: `a${i}`, decision: "reject", by: "x", artifactSha: "" } }, HUMAN_WRITER);
+    expect(checkCaps(replay(l.events()))).toMatchObject({ kind: "rejections", waivable: false });
   });
 });

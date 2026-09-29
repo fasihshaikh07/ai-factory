@@ -60,6 +60,8 @@ export interface RunInfo {
   complexity?: Complexity;
   request?: string;
   versions?: Record<string, string>;
+  /** spend when the plan completed; the post-plan cost limit adds the size's cap to it */
+  spendAtPlan?: number;
   createdAt: string;
 }
 
@@ -80,7 +82,7 @@ export interface RunState {
   workspace?: { path: string; branch: string };
   lastSeq: number;
   flags: { pauseRequested: boolean; stopRequested: boolean };
-  /** Limits a human raised after a park (factory raise-cap). */
+  /** Limits a human raised on a cap card (factory waive-cap). */
   capOverrides: { costUsd?: number; wallMinutes?: number; extraAttempts: number };
   sinks: Map<string, { intentSeq: number; externalId?: string }>;
 }
@@ -146,7 +148,7 @@ export function replay(events: LedgerEvent[]): RunState {
         r.data = data;
         // the cost cap depends on these: class from intake, size from plan
         if (typeof data.changeClass === "string") s.info.changeClass = data.changeClass as ChangeClass;
-        if (typeof data.complexity === "string") s.info.complexity = data.complexity as Complexity;
+        if (typeof data.complexity === "string") { s.info.complexity = data.complexity as Complexity; s.info.spendAtPlan = s.costUsd; }
         s.inFlight = undefined;
         closeActive(ev.ts);
         break;
@@ -182,12 +184,11 @@ export function replay(events: LedgerEvent[]): RunState {
         break;
       case "human.decided": {
         const dec = { ...(data as unknown as Omit<Decision, "seq">), seq: ev.seq };
-        if (dec.decision === "raise-cap") {
+        if (dec.decision === "waive-cap") {
           const d2 = data as { costUsd?: number; wallMinutes?: number; extraAttempts?: number };
           if (typeof d2.costUsd === "number") s.capOverrides.costUsd = d2.costUsd;
           if (typeof d2.wallMinutes === "number") s.capOverrides.wallMinutes = d2.wallMinutes;
           if (typeof d2.extraAttempts === "number") s.capOverrides.extraAttempts += d2.extraAttempts;
-          break;
         }
         s.decisions.push(dec);
         if (dec.decision === "waive") s.waivers += 1;

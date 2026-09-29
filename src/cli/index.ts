@@ -103,28 +103,30 @@ program.command("answer").argument("<run>").argument("<hash>", "first characters
     if (r.kind === "recorded") await runAndReport(l.runId);
   });
 
-program.command("raise-cap").argument("<run>")
+program.command("waive-cap").argument("<run>").argument("<hash>", "first characters of the limit card's hash")
   .option("--cost <dollars>", "new cost limit for this run, in USD")
   .option("--minutes <n>", "new active-time limit, in minutes")
   .option("--attempts <n>", "extra attempts per step (the retry ladder starts again)")
-  .description("raise a limit that parked the run, then continue (terminal only)")
-  .action(async (run: string, o: { cost?: string; minutes?: string; attempts?: string }) => {
+  .description("accept going past a limit (cost, time or attempts) and continue; without options uses the card's suggestion (terminal only)")
+  .action(async (run: string, hash: string, o: { cost?: string; minutes?: string; attempts?: string }) => {
     assertTty();
-    const data: Record<string, number> = {};
     const num = (v: string | undefined, name: string) => {
       if (v === undefined) return undefined;
       const n = Number(v);
       if (!Number.isFinite(n) || n <= 0) throw new DecisionError(`--${name} must be a positive number`);
       return n;
     };
+    const l = openRun(run);
+    const card = replay(l.events()).openCard as ({ kind: string; proposal?: Record<string, number> } | undefined);
+    if (card?.kind !== "cap") throw new DecisionError("The open card isn't a limit card.");
+    const data: Record<string, number> = { ...(card.proposal ?? {}) };
     const cost = num(o.cost, "cost"), minutes = num(o.minutes, "minutes"), attempts = num(o.attempts, "attempts");
     if (cost !== undefined) data.costUsd = cost;
     if (minutes !== undefined) data.wallMinutes = minutes;
     if (attempts !== undefined) data.extraAttempts = Math.round(attempts);
-    if (!Object.keys(data).length) throw new DecisionError("Give at least one of --cost, --minutes, --attempts");
-    const l = openRun(run);
-    await l.append({ type: "human.decided", data: { cardId: "caps", decision: "raise-cap", by: userInfo().username, artifactSha: "", ...data } }, HUMAN_WRITER);
-    log(`Limits raised (${Object.entries(data).map(([k, v]) => `${k} ${v}`).join(", ")}). Continuing…`);
+    const r = await decide(l, { decision: "waive-cap", hashPrefix: hash, data });
+    if (r.kind === "repeat") return log("Already recorded.");
+    log(`New limits: ${Object.entries(data).map(([k, v]) => `${k} ${v}`).join(", ")}. Continuing…`);
     await runAndReport(l.runId);
   });
 
@@ -257,7 +259,7 @@ program.command("mcp").description("run the MCP server (for Claude Code: start r
     await startMcpServer();
   });
 
-program.command("doctor").description("check this machine and the setup").action(() => {
+program.command("doctor").description("check this machine and the setup").action(async () => {
   const ok = (b: boolean, m: string, fix?: string) => log(`${b ? "ok  " : "MISSING"} ${m}${!b && fix ? `\n      → ${fix}` : ""}`);
   ok(Number(process.versions.node.split(".")[0]) >= 22, `Node ${process.version}`, "install Node 22 with nvm");
   const wsl = process.platform === "linux" && /microsoft/i.test(existsSync("/proc/version") ? readFileSync("/proc/version", "utf8") : "");
@@ -269,6 +271,15 @@ program.command("doctor").description("check this machine and the setup").action
   ok(existsSync(join(factoryHome(), ".env")), "~/.factory/.env exists", "create it yourself with your API keys (never paste keys into chat)");
   ok(hasSecret("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY set in ~/.factory/.env");
   log(`${hasSecret("OPENAI_API_KEY") ? "ok  " : "note"} OPENAI_API_KEY ${hasSecret("OPENAI_API_KEY") ? "set" : "not set: critic and review will use Claude (single family)"}`);
+  if (hasSecret("OPENAI_API_KEY")) {
+    const { DEFAULT_ROUTES } = await import("../stages/routing.js");
+    const gpt = [...new Set(Object.values(DEFAULT_ROUTES).map((r) => r.model).filter((m) => /^gpt|^o\d/.test(m)))];
+    for (const name of existsSync(join(factoryHome(), "projects")) ? readdirSync(join(factoryHome(), "projects")).filter((f) => f.endsWith(".yaml")) : []) {
+      const p = loadProject(name.replace(/\.yaml$/, ""));
+      const missing = gpt.filter((m) => !p.prices[m]);
+      if (missing.length) log(`note ${p.project}: no price set for ${missing.join(", ")}; cost is estimated high ($10/$50 per million). Add "prices:" to its config.`);
+    }
+  }
   const projects = existsSync(join(factoryHome(), "projects")) ? readdirSync(join(factoryHome(), "projects")).filter((f) => f.endsWith(".yaml")) : [];
   ok(projects.length > 0, `projects: ${projects.join(", ").replace(/\.yaml/g, "") || "none"}`, "add one with: factory init <path-to-repo-or-git-url>");
 });
