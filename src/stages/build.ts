@@ -328,9 +328,37 @@ export function acOwners(plan: { tasks: { id: string; reqs: string[] }[] }, spec
   return owners;
 }
 
-/** Run gates; classify for the ladder: safety > locked-test > other. */
-async function gateAll(ctx: StepContext, step: string, treeSha: string, gates: [GateDef, Record<string, string>][]): Promise<{ failures: Failure[]; category: "safety" | "locked-test" | "other"; lockedFailedIds: string[] } | undefined> {
-  const failures: Failure[] = [];
+type EarlierTests = Map<string, { taskId: string; acId: string }>;
+
+/** Locked tests owned by tasks before `taskId` in plan order (testId → owner). Later tasks' tests never count. */
+export function earlierTests(plan: { tasks: { id: string }[] }, owners: Map<string, string>, tests: { acId: string; testId: string }[], taskId: string): EarlierTests {
+  const order = plan.tasks.map((t) => t.id);
+  const me = order.indexOf(taskId);
+  const out: EarlierTests = new Map();
+  for (const t of tests) {
+    const o = owners.get(t.acId);
+    const i = o ? order.indexOf(o) : -1;
+    if (o && i >= 0 && i < me) out.set(t.testId, { taskId: o, acId: t.acId });
+  }
+  return out;
+}
+
+const LOCKED_CHECKS = new Set(["locked-failed", "locked-flaky", "locked-not-executed"]);
+
+/**
+ * An earlier task's locked test passed at its own task; if it fails now, this task's change broke it.
+ * Say so plainly, as a regression: the code is wrong, not the test (no test-defect check, no park).
+ */
+export function labelRegressions(failures: Failure[], earlier: EarlierTests): Failure[] {
+  return failures.map((f) => {
+    const o = f.testId && LOCKED_CHECKS.has(f.check) ? earlier.get(f.testId) : undefined;
+    return o ? { ...f, check: "regression", message: `Your change broke ${o.taskId}'s locked test ${f.testId} (${o.acId}): ${f.message}` } : f;
+  });
+}
+
+/** Run gates; classify for the ladder: safety > locked-test > other. Earlier tasks' locked tests become regressions. */
+async function gateAll(ctx: StepContext, step: string, treeSha: string, gates: [GateDef, Record<string, string>][], earlier?: EarlierTests): Promise<{ failures: Failure[]; category: "safety" | "locked-test" | "other"; lockedFailedIds: string[] } | undefined> {
+  let failures: Failure[] = [];
   let safety = false;
   for (const [def, inputs] of gates) {
     const r = await runGate(def, ctx.ledger, ctx.writer, inputs, ctx.policy, { step, treeSha });
@@ -340,6 +368,7 @@ async function gateAll(ctx: StepContext, step: string, treeSha: string, gates: [
     }
   }
   if (!failures.length) return undefined;
+  if (earlier) failures = labelRegressions(failures, earlier);
   const lockedFailedIds = failures.filter((f) => f.check === "locked-failed" || f.check === "locked-flaky").map((f) => f.testId!).filter(Boolean);
   const evidence = failures.some((f) => f.check === "evidence" || f.check === "locked-not-executed");
   return { failures, category: safety || evidence ? "safety" : lockedFailedIds.length ? "locked-test" : "other", lockedFailedIds };
@@ -375,6 +404,7 @@ export function implementStep(taskId: string): StepDef {
       const { model, effort } = modelFor(ctx.project, "implement", ctx.rung);
       const owners = acOwners(plan, spec);
       const myTests = lock.tests.filter((t) => owners.get(t.acId) === task.id);
+      const earlier = earlierTests(plan, owners, lock.tests, task.id);
       const rt = runtime();
       await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
       await ensureAgentImage(rt, ctx.project.dotnet.sdkImage);
@@ -424,12 +454,13 @@ export function implementStep(taskId: string): StepDef {
       if (diffGated) return failed(diffGated);
       // 2. only then build and run the tests on that exact commit
       const produced = await produce(ctx, `${key}/${ctx.attempt}`, commit, "task", {
-        // must pass: this task's own criteria + the characterisation tests (behaviour that must not change)
-        expectPass: [...myTests.map((t) => t.testId), ...lock.characterisation.map((c) => c.testId)],
+        // must pass: this task's own criteria, earlier tasks' criteria and the characterisation tests (behaviour that must not change)
+        expectPass: [...myTests.map((t) => t.testId), ...earlier.keys(), ...lock.characterisation.map((c) => c.testId)],
         expectFail: [], compareToBaseline: baseline.results.map((b) => b.id),
       });
       const run = storeRun(ctx, produced);
-      const gated = await gateAll(ctx, key, commit, [[testExpectations, { run: run.testRun, baseline: baselineSha }]]);
+      // a failed build runs no tests: "didn't run" then isn't a regression, it's the build
+      const gated = await gateAll(ctx, key, commit, [[testExpectations, { run: run.testRun, baseline: baselineSha }]], produced.build.ok ? earlier : undefined);
       if (gated) {
         if (!produced.build.ok) gated.failures.unshift(...produced.build.errors.slice(0, 10).map((e) => failure("build", `${e.file}:${e.line} ${e.code} ${e.msg}`)));
         return failed(gated);
