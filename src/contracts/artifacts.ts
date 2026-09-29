@@ -257,6 +257,8 @@ export const ReviewFinding = z.object({
   file: z.string(), line: z.number().int().nonnegative(), text: z.string(),
   confidence: z.number().min(0).max(1),
   severity: z.enum(["critical", "high", "medium", "low"]),
+  /** security findings: the OWASP Top 10 item, e.g. "A01 Broken Access Control". Optional: older reviews have none. */
+  owasp: z.string().optional(),
 });
 export type ReviewFinding = z.infer<typeof ReviewFinding>;
 export const ReviewBody = z.object({ findings: z.array(ReviewFinding) });

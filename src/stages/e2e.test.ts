@@ -266,6 +266,7 @@ describe("brownfield slice end to end (fakes)", () => {
     // thinking steps used Opus 5.5 for ground/spec/plan
     expect(modelCalls).toContain("claude-opus-5-5");
     expect(ledger.readCard(`pr-${runId}`)).toContain("AC-1.1");
+    expect(ledger.readCard(`pr-${runId}`)).toContain("Security review (OWASP Top 10): nothing found");
     // the trace shows every level: steps, model turns, lab phases, containers, gates, the coding agent's actions
     const trace = readFileSync(join(ledger.dir, "run.log"), "utf8");
     for (const want of [/▶ intake/, /intake turn 1 claude-haiku-4-5 .*→ answered/, /lab: build ok/, /lab: tests ran/, /container producer started/,
