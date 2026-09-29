@@ -213,6 +213,7 @@ Return the list of tests you wrote (acId, file, method name) and the probes.`),
       onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key: "author-tests", data: { id } }, ctx.writer); },
     }).run({ step: "author-tests", model, effort, pack, schema: AuthorOut, limits: { maxTurns: 60, maxUsd: 4, timeoutSec: 45 * 60 }, workdir: wt });
     await ctx.usage({ model, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, cacheRead: r.usage.cacheRead, cacheWrite: r.usage.cacheWrite, turns: r.usage.turns, wallMs: r.usage.wallMs, estUsd: r.usage.estUsd });
+    if (r.status === "config-error") return { kind: "park", reason: r.error ?? "The API rejected the coding agent's request" };
     if (r.status !== "ok") return { kind: "fail", category: r.status === "rate-limited" ? "rate-limit" : "other", failures: [failure(`agent-${r.status}`, r.error ?? r.status)], signature: `author-tests:${r.status}` };
     const out = r.output as z.infer<typeof AuthorOut>;
 
@@ -383,7 +384,8 @@ export function implementStep(taskId: string): StepDef {
         onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
       }).run({ step: "implement", model, effort, pack, schema: ImplementOut, limits: { maxTurns: 80, maxUsd: 4, timeoutSec: 45 * 60 }, workdir: wt });
       await ctx.usage({ model, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, cacheRead: r.usage.cacheRead, cacheWrite: r.usage.cacheWrite, turns: r.usage.turns, wallMs: r.usage.wallMs, estUsd: r.usage.estUsd });
-      if (r.status !== "ok") return { kind: "fail", category: r.status === "rate-limited" ? "rate-limit" : "other", failures: [failure(`agent-${r.status}`, r.error ?? r.status)], signature: `implement:${r.status}` };
+      if (r.status === "config-error") return { kind: "park", reason: r.error ?? "The API rejected the coding agent's request" };
+    if (r.status !== "ok") return { kind: "fail", category: r.status === "rate-limited" ? "rate-limit" : "other", failures: [failure(`agent-${r.status}`, r.error ?? r.status)], signature: `implement:${r.status}` };
 
       // core commits (the agent has no git), then the producer judges that exact commit
       const commit = await commitAll(wt, `factory: ${task.id} ${task.title}`);

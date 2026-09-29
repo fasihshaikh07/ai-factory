@@ -12,8 +12,9 @@ import { matchesAny } from "../util/glob.js";
 import { factoryHome } from "../util/paths.js";
 import type { ContainerRuntime, Mount } from "../verify/runtime.js";
 import { stopAndRemove } from "../verify/runtime.js";
+import { supportsEffort } from "./api.js";
 import { AGENT_IMAGE, AGENT_NET, API_BASE_URL } from "./netinfra.js";
-import { emptyUsage, type Job, type Result, type Runner } from "./types.js";
+import { configErrorText, emptyUsage, type Job, type Result, type Runner } from "./types.js";
 
 export interface AgentJobExtras {
   runId: string;
@@ -44,6 +45,7 @@ export interface AgentOut {
   costUsd: number;
   turns: number;
   sessionId?: string;
+  apiErrorStatus?: number;
 }
 
 /**
@@ -89,7 +91,8 @@ export class ClaudeAgentRunner implements Runner {
     writeFileSync(emptyFile, "");
     writeFileSync(join(jobDir, "in.json"), JSON.stringify({
       model: job.model,
-      effort: job.effort ?? "high",
+      // Haiku 4.5 and older models reject an effort setting
+      effort: supportsEffort(job.model) ? (job.effort ?? "high") : undefined,
       maxTurns: job.limits.maxTurns,
       maxUsd: job.limits.maxUsd,
       system: job.pack.system,
@@ -150,6 +153,11 @@ export class ClaudeAgentRunner implements Runner {
         return { status: "error", error: `Agent loaded instruction files: ${out.instructionsLoaded.join(", ")}`, usage: u, sessionId: out.sessionId };
       }
       if (out.status !== "ok") {
+        if (out.status === "config-error") {
+          return { status: "config-error", error: out.apiErrorStatus === 403
+            ? "The coding agent's API calls were refused by the factory's key proxy or the API (403). Run factory doctor."
+            : configErrorText(out.apiErrorStatus, out.error ?? "", job.model), usage: u, sessionId: out.sessionId };
+        }
         const status = out.status === "over-budget" ? "over-budget" : out.status === "bad-output" ? "bad-output" : out.status === "max-turns" ? "timeout" : "error";
         return { status, error: out.error, usage: u, sessionId: out.sessionId };
       }

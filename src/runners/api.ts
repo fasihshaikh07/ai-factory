@@ -9,7 +9,7 @@ import type { RepoTools } from "../context/tools.js";
 import { TOOL_DEFS } from "../context/tools.js";
 import { secret } from "../config/env.js";
 import { costUsd } from "./pricing.js";
-import { addUsage, emptyUsage, type Effort, type Job, type Result, type Runner } from "./types.js";
+import { addUsage, configErrorText, emptyUsage, type Effort, type Job, type Result, type Runner } from "./types.js";
 
 export const MAX_REASKS = 2;
 const SUBMIT = "submit_result";
@@ -35,6 +35,11 @@ export interface Provider {
 }
 
 export class RateLimitedError extends Error {}
+/** 400/401/403/404: retrying won't help. */
+export class ConfigError extends Error {
+  constructor(readonly status: number | undefined, message: string) { super(message); }
+}
+const CONFIG_STATUSES = new Set([400, 401, 403, 404]);
 
 /** Models that accept output_config.effort (Opus 4.5+, Sonnet 4.6+/5, Fable). Haiku 4.5 does not. */
 export function supportsEffort(model: string): boolean {
@@ -77,6 +82,7 @@ export class AnthropicProvider implements Provider {
           if (e instanceof Anthropic.RateLimitError || e instanceof Anthropic.InternalServerError || (e instanceof Anthropic.APIError && e.status === 529)) {
             throw new RateLimitedError((e as Error).message);
           }
+          if (e instanceof Anthropic.APIError && CONFIG_STATUSES.has(e.status as number)) throw new ConfigError(e.status as number, (e as Error).message);
           throw e;
         }
         // append the full content (thinking blocks must go back unchanged)
@@ -132,6 +138,7 @@ export class OpenAIProvider implements Provider {
           });
         } catch (e) {
           if (e instanceof OpenAI.RateLimitError || e instanceof OpenAI.InternalServerError) throw new RateLimitedError((e as Error).message);
+          if (e instanceof OpenAI.APIError && CONFIG_STATUSES.has(e.status as number)) throw new ConfigError(e.status as number, (e as Error).message);
           throw e;
         }
         const choice = res.choices[0]!;
@@ -205,6 +212,7 @@ export class ApiRunner implements Runner {
         t = await convo.next();
       } catch (e) {
         if (e instanceof RateLimitedError) return done("rate-limited", { error: e.message });
+        if (e instanceof ConfigError) return done("config-error", { error: configErrorText(e.status, e.message, job.model) });
         return done("error", { error: (e as Error).message });
       }
       const cost = costUsd(job.model, t.usage);

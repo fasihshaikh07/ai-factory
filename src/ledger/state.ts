@@ -62,6 +62,8 @@ export interface RunInfo {
   versions?: Record<string, string>;
   /** spend when the plan completed; the post-plan cost limit adds the size's cap to it */
   spendAtPlan?: number;
+  /** `factory start --max-cost`: a lower limit for this run */
+  maxCostUsd?: number;
   createdAt: string;
 }
 

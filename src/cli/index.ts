@@ -38,12 +38,13 @@ program.name("factory").description("AI Factory: turns a request into a verified
 program.command("start")
   .argument("<prompt>", "what you want changed, in plain words")
   .requiredOption("--project <name>", "project config in ~/.factory/projects/<name>.yaml")
+  .option("--max-cost <dollars>", "a lower spend limit for this run (it can only lower the normal limit)")
   .description("create a run and execute until a card, a park, or delivery")
-  .action(async (prompt: string, o: { project: string }) => {
+  .action(async (prompt: string, o: { project: string; maxCost?: string }) => {
     const project = loadProject(o.project);
     const problems = checkRoutes(project);
     if (problems.length) throw new Error(`Setup problems:\n- ${problems.join("\n- ")}`);
-    const runId = await createRun(prompt, o.project, userInfo().username);
+    const runId = await createRun(prompt, o.project, userInfo().username, o.maxCost !== undefined ? { maxCostUsd: Number(o.maxCost) } : {});
     log(`run ${runId}`);
     await runAndReport(runId);
   });
@@ -265,6 +266,19 @@ program.command("mcp").description("run the MCP server (for Claude Code: start r
     await startMcpServer();
   });
 
+program.command("smoke").option("--project <name>", "also check models this project overrides")
+  .description("cheap real check of every paid connection (a few cents): each model, the key proxy, the coding agent")
+  .action(async (o: { project?: string }) => {
+    const { runSmoke } = await import("../smoke.js");
+    const { defaultProvider } = await import("../runners/api.js");
+    const { DockerCli } = await import("../verify/runtime.js");
+    const checks = await runSmoke({ provider: defaultProvider, rt: new DockerCli(), project: o.project ? loadProject(o.project) : undefined, log });
+    const total = checks.reduce((n, c) => n + c.costUsd, 0);
+    const ok = checks.length > 0 && checks.every((c) => c.ok);
+    log(`\n${ok ? "All checks passed" : "Stopped at the first failure; fix it before a real run"}. Spent about $${total.toFixed(4)}.`);
+    if (!ok) process.exitCode = 1;
+  });
+
 program.command("doctor").description("check this machine and the setup").action(async () => {
   const ok = (b: boolean, m: string, fix?: string) => log(`${b ? "ok  " : "MISSING"} ${m}${!b && fix ? `\n      → ${fix}` : ""}`);
   ok(Number(process.versions.node.split(".")[0]) >= 22, `Node ${process.version}`, "install Node 22 with nvm");
@@ -273,7 +287,14 @@ program.command("doctor").description("check this machine and the setup").action
   else ok(process.platform === "linux" && !process.cwd().startsWith("/mnt/"), wsl ? "running inside WSL (Ubuntu), not on a Windows drive" : "running on Linux", "on Windows, use the Ubuntu terminal (install.ps1 sets it up)");
   let rt = "";
   try { rt = findRuntimeBinary(); } catch (e) { rt = ""; ok(false, "container runtime", (e as Error).message); }
-  if (rt) ok(true, `container runtime: ${rt}`);
+  if (rt) {
+    ok(true, `container runtime: ${rt}`);
+    const { apiProxyState } = await import("../runners/netinfra.js");
+    const { DockerCli } = await import("../verify/runtime.js");
+    const st = await apiProxyState(new DockerCli(rt));
+    log(st === "current" ? "ok   key proxy is up to date with your keys"
+      : `note key proxy ${st === "outdated" ? "has old settings (e.g. from before you added a key)" : "isn't running"}; it restarts automatically on the next run or smoke test`);
+  }
   ok(existsSync(join(factoryHome(), ".env")), "~/.factory/.env exists", "create it yourself with your API keys (never paste keys into chat)");
   ok(hasSecret("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY set in ~/.factory/.env");
   log(`${hasSecret("OPENAI_API_KEY") ? "ok  " : "note"} OPENAI_API_KEY ${hasSecret("OPENAI_API_KEY") ? "set" : "not set: critic and review will use Claude (single family)"}`);

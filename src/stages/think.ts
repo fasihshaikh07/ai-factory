@@ -68,6 +68,8 @@ export async function think<T>(ctx: StepContext, spec: ThinkSpec<T>): Promise<Th
     limits: { maxTurns: spec.maxTurns ?? 8, maxUsd: spec.maxUsd ?? 2, timeoutSec: spec.timeoutSec ?? 900 },
   });
   if (r.status === "ok") return { ok: true, output: r.output as T, model, packSha, note: singleFamilyNote };
+  // bad key, unknown model, rejected request: stop now instead of paying for retries
+  if (r.status === "config-error") return { ok: false, outcome: { kind: "park", reason: r.error ?? "The API rejected the request" } };
   const category = r.status === "rate-limited" ? "rate-limit" : "other";
   return {
     ok: false,

@@ -21,9 +21,11 @@ export const MIN_CAP_USD = 10;
  * the plan plus the size's cap (at least $10); a human waiver replaces it.
  */
 export function currentCostCap(state: RunState): number {
-  if (state.capOverrides.costUsd !== undefined) return state.capOverrides.costUsd;
+  if (state.capOverrides.costUsd !== undefined) return state.capOverrides.costUsd; // a human waiver decides
   const cls = Math.max(costCapUsd(state.info.changeClass, state.info.complexity), MIN_CAP_USD);
-  return state.info.complexity ? (state.info.spendAtPlan ?? 0) + cls : cls;
+  const normal = state.info.complexity ? (state.info.spendAtPlan ?? 0) + cls : cls;
+  // --max-cost can only lower the limit
+  return state.info.maxCostUsd !== undefined ? Math.min(normal, state.info.maxCostUsd) : normal;
 }
 
 /** Expected active time per class [EVAL]; the cap is 2×. */
@@ -40,7 +42,7 @@ export interface CapHit {
   proposal?: { costUsd?: number; wallMinutes?: number; extraAttempts?: number };
 }
 
-export function checkCaps(state: RunState): CapHit | undefined {
+export function checkCaps(state: RunState, maxAttempts = MAX_ATTEMPTS_PER_TASK): CapHit | undefined {
   const o = state.capOverrides;
   const cap = currentCostCap(state);
   if (state.costUsd >= cap) {
@@ -54,7 +56,7 @@ export function checkCaps(state: RunState): CapHit | undefined {
   if (state.waivers > MAX_WAIVERS) return { kind: "waivers", waivable: false, reason: `More than ${MAX_WAIVERS} waivers in this run` };
   if (state.rejections >= MAX_REJECTIONS) return { kind: "rejections", waivable: false, reason: `Rejected ${state.rejections} times; let's talk before trying again` };
   for (const r of state.steps.values()) {
-    if (r.attempts >= MAX_ATTEMPTS_PER_TASK + o.extraAttempts && r.status !== "completed") {
+    if (r.attempts >= maxAttempts + o.extraAttempts && r.status !== "completed") {
       return { kind: "attempts", waivable: true, reason: `${r.step} used ${r.attempts} attempts`, proposal: { extraAttempts: 3 } };
     }
     if (r.interruptions >= MAX_INTERRUPTIONS && r.status !== "completed") {

@@ -50,7 +50,8 @@ export function assertDeliverable(project: ProjectConfig): void {
 }
 
 /** `factory start`: create the ledger. Execution happens in `execute`. */
-export async function createRun(request: string, projectName: string, operator: string): Promise<string> {
+export async function createRun(request: string, projectName: string, operator: string, opts: { maxCostUsd?: number } = {}): Promise<string> {
+  if (opts.maxCostUsd !== undefined && !(opts.maxCostUsd > 0)) throw new Error("--max-cost must be a positive number of dollars");
   const project = loadProject(projectName);
   assertSupportedPath(project.repo);
   assertDeliverable(project);
@@ -63,6 +64,7 @@ export async function createRun(request: string, projectName: string, operator: 
     data: {
       mode: "brownfield", project: project.project, repoPath: project.repo, repoId: project.project,
       baseRef: project.baseBranch, baseCommit, request, requestSha, operator, versions: versions(),
+      ...(opts.maxCostUsd !== undefined ? { maxCostUsd: opts.maxCostUsd } : {}),
     },
   }, HUMAN_WRITER);
   return runId;
@@ -134,7 +136,7 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
       if (state.flags.pauseRequested) { await ledger.append({ type: "run.paused" }, writer); return { status: "paused", message: "Paused." }; }
       if (typeof state.status === "object" || state.status === "delivered") return { status: String(typeof state.status === "object" ? `closed: ${state.status.closed}` : state.status), message: "Nothing to do." };
       if (state.openCard) return { status: "waiting", message: `Waiting for you: factory show-card ${runId}` };
-      const cap = checkCaps(state);
+      const cap = checkCaps(state, policy.retryBudget);
       if (cap && !cap.waivable) { await ledger.append({ type: "run.parked", data: { reason: cap.reason } }, writer); return { status: "parked", message: cap.reason }; }
       if (cap) {
         // cost, time and attempts: a hash-bound card; a human decides on the terminal
@@ -189,7 +191,8 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
           const named = outcome.outputs;
           const treeSha = outcome.treeSha && /^[0-9a-f]{40}$/.test(outcome.treeSha) ? outcome.treeSha : undefined;
           await ledger.append({ type: "step.completed", key, inputsHash: n.hash, treeSha, outputs: Object.values(named), data: { ...(outcome.data ?? {}), named } }, writer);
-          log(`✓ ${n.step.key}`);
+          const after = replay(ledger.events()).costUsd;
+          log(`✓ ${n.step.key} ($${(after - state.costUsd).toFixed(2)}, total $${after.toFixed(2)})`);
           if (n.step.key === "deliver") {
             await ledger.append({ type: "run.delivered", data: outcome.data ?? {} }, writer);
             const d = outcome.data as { local?: boolean; branch?: string; prUrl?: string };
@@ -216,7 +219,8 @@ export async function execute(runId: string, log: Log = () => undefined): Promis
           const rec2: AttemptRecord = { category: outcome.category, signature: outcome.signature ?? sha256(JSON.stringify(outcome.failures)).slice(0, 16), diffSha: outcome.diffSha, rung, lockedFailedIds: outcome.lockedFailedIds };
           const backoffSpent = history.reduce((n2, h) => n2 + Number((h as { waitMs?: number }).waitMs ?? 0), 0);
           const action: LadderAction = nextOnFailure([...history, rec2], {
-            ...DEFAULT_LADDER, maxAttempts: DEFAULT_LADDER.maxAttempts + state.capOverrides.extraAttempts, availableRungs: availableRungs(project, n.step.stage, policy.localOnly), backoffSpentMs: backoffSpent, a5Done: new Set(),
+            // policy.retryBudget (default 6; a trial project can say 2)
+            ...DEFAULT_LADDER, maxAttempts: policy.retryBudget + state.capOverrides.extraAttempts, availableRungs: availableRungs(project, n.step.stage, policy.localOnly), backoffSpentMs: backoffSpent, a5Done: new Set(),
           });
           const failuresSha = ledger.putJson(outcome.failures.slice(0, 20));
           await ledger.append({

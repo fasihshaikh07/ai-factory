@@ -180,9 +180,12 @@ bold "6/7 Container images (first time: several GB, takes a few minutes)"
 for img in "${IMAGES[@]}"; do
   if d image inspect "$img" >/dev/null 2>&1; then ok "$img"; else note "pulling $img"; d pull -q "$img" >/dev/null && ok "$img"; fi
 done
-if d image inspect factory-agent:dotnet8 >/dev/null 2>&1; then ok "factory-agent:dotnet8"; else
+# same fingerprint label the factory checks, so it doesn't rebuild right after setup
+FP="$(cd "$FACTORY_DIR" && node -e 'import("./dist/runners/netinfra.js").then(m => console.log(m.agentImageFingerprint(process.argv[1])))' "$SDK_IMAGE")"
+if [ "$(d image inspect -f '{{index .Config.Labels "factory.config"}}' factory-agent:dotnet8 2>/dev/null)" = "$FP" ]; then ok "factory-agent:dotnet8"; else
   note "building the coding-agent image"
-  d build -q --build-arg "DOTNET_SDK=$SDK_IMAGE" -t factory-agent:dotnet8 "$FACTORY_DIR/docker/agent" >/dev/null && ok "factory-agent:dotnet8"
+  quiet d build --label "factory.config=$FP" --build-arg "DOTNET_SDK=$SDK_IMAGE" -t factory-agent:dotnet8 "$FACTORY_DIR/docker/agent"
+  ok "factory-agent:dotnet8"
 fi
 
 # ---------- 7. Claude Code (MCP) ----------

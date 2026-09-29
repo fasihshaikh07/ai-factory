@@ -90,6 +90,10 @@ async function main() {
         out.status = { error_max_turns: "max-turns", error_max_budget_usd: "over-budget", error_max_structured_output_retries: "bad-output" }[m.subtype] ?? "error";
         out.error = m.subtype;
       }
+      if (typeof m.api_error_status === "number") {
+        out.apiErrorStatus = m.api_error_status;
+        if ([400, 401, 403, 404].includes(m.api_error_status)) { out.status = "config-error"; out.error = `API error ${m.api_error_status}: ${String(m.result ?? "").slice(0, 300)}`; }
+      }
     }
   }
 }

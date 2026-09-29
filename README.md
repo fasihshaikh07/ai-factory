@@ -266,11 +266,19 @@ Tests that already fail are fine: they're remembered, and a run is only blamed f
 
 ## Your first run
 
+**Spend cents before dollars.** After adding your key, check every paid connection first:
+
 ```bash
-factory start "Return 404 instead of 500 when an order ID doesn't exist" --project shop-api
+factory smoke        # one tiny call per model, the key proxy, the coding agent in its container: a few cents
 ```
 
-The factory works until it needs you, then prints what to do and exits. Nothing runs in the background while it waits.
+It stops at the first failure (bad key, unknown model, proxy problem), so nothing bigger runs against a broken setup. Then start with a spend limit, and optionally fewer retries in the project config (`policy: { retryBudget: 2 }`):
+
+```bash
+factory start "Return 404 instead of 500 when an order ID doesn't exist" --project shop-api --max-cost 5
+```
+
+The factory works until it needs you, then prints what to do and exits. Nothing runs in the background while it waits. After each step it prints what that step cost and the running total. A bad key, an unknown model or a rejected request stops the run at once instead of retrying.
 
 **1. Questions (only if needed)**
 
@@ -311,11 +319,12 @@ The branch `factory/<run>` holds the stub commit (if any), the locked tests, one
 
 | Command | What it does |
 |---|---|
-| `factory doctor` | Checks Node, containers, secrets and projects. |
+| `factory doctor` | Checks Node, containers, secrets, the key proxy and projects. |
+| `factory smoke` | Cheap real check of every paid connection (each model, the key proxy, the coding agent). A few cents. Run it after adding or changing keys. |
 | `factory init <repo>` | Adds a project: copies the repo into Linux if needed, detects settings, writes the config. |
 | `factory mcp` | Runs the MCP server for Claude Code (registered by setup). |
 | `factory baseline --project <p>` | Builds and tests the untouched repo in the test lab. No AI. |
-| `factory start "<request>" --project <p>` | Creates a run and executes until a card, a park or delivery. |
+| `factory start "<request>" --project <p> [--max-cost <usd>]` | Creates a run and executes until a card, a park or delivery. `--max-cost` lowers this run's spend limit. |
 | `factory status [run]` | All recent runs, or one run's steps, cost and open card. |
 | `factory show-card <run> [--pr]` | Prints the open card (or the PR text). |
 | `factory answer <run> <hash> Q-1=A …` | Answers a question card. Terminal only. |
