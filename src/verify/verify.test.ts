@@ -7,7 +7,7 @@ import { ProjectConfig } from "../config/project.js";
 import { filterFor, parseBuildErrors, produceDotnetTests } from "./dotnet.js";
 import type { ContainerRuntime, ContainerSpec } from "./runtime.js";
 import { classifyFailure, parseTrx } from "./trx.js";
-import { buildTestRun, classify, validate } from "./validate.js";
+import { buildTestRun, classify, rerunCandidates, validate } from "./validate.js";
 import { trx } from "./testutil.js";
 
 beforeEach(() => {
@@ -66,6 +66,17 @@ describe("validity", () => {
     const run = buildTestRun({ treeSha: "a".repeat(40), stage: "task", toolVersions: {}, exp, raw: { reports: [], results: [], discovered: [], exitCode: 1, buildFailed: true }, probeOk: () => true });
     expect(run.valid).toBe(true);
     expect(run.results[0]).toMatchObject({ id: "P::A", failureKind: "compile" });
+  });
+});
+
+describe("re-runs", () => {
+  it("a new failure gets its second chance even when the repo has many known failures", () => {
+    const known = Array.from({ length: 100 }, (_, i) => `K::t${i}`);
+    const results = [...known, "J::Timing", "L::Locked"].map((id) => ({ id, outcome: "failed" as const, durationMs: 1 }));
+    const exp = { expectPass: ["L::Locked"], expectFail: [], compareToBaseline: [] };
+    expect(rerunCandidates(results, exp, new Set(known))).toEqual(["J::Timing"]);
+    // without the baseline it's everything unlocked (the old behaviour, over the limit of 20)
+    expect(rerunCandidates(results, exp)).toHaveLength(101);
   });
 });
 

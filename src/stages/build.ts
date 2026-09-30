@@ -72,12 +72,19 @@ async function produce(ctx: StepContext, key: string, commit: string, stage: Tes
   const rt = runtime();
   await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
   return produceDotnetTests({
-    runId: ctx.runId, key, repo: ctx.state.info.repoPath!, commit, stage, exp, project: ctx.project, rt, onlyTests, filterExpr, accept,
+    runId: ctx.runId, key, repo: ctx.state.info.repoPath!, commit, stage, exp, project: ctx.project, rt, onlyTests, filterExpr, accept, knownFailures: knownFailures(ctx),
     packagesDir: packagesDir(ctx.runId),
     onContainer: async (id, role) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role } }, ctx.writer); },
     onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
     onPhase: phaseTracer(ctx),
   });
+}
+
+/** Tests that failed in this run's baseline (the repo's known failures). */
+function knownFailures(ctx: StepContext): Set<string> {
+  const sha = ctx.state.steps.get("discover")?.outputs[0];
+  if (!sha) return new Set();
+  return new Set(ctx.ledger.getJson<TestRun>(sha).results.filter((r) => r.outcome === "failed").map((r) => r.id));
 }
 
 /** Test-lab phases → trace; a failing phase's log tail is saved (masked) as a blob. */

@@ -52,9 +52,14 @@ export function needsProbe(results: TestResult[]): boolean {
 }
 
 /** Non-locked failing tests get one re-run; locked (expectPass) never do. */
-export function rerunCandidates(results: TestResult[], exp: Expectations): string[] {
+/**
+ * Failed, unlocked tests worth one more run. Tests that already failed before any change (the repo's
+ * known failures) aren't: they'd fill the re-run limit, so a flaky timing test would never get its
+ * second chance (a repo with 100 known failures re-ran nothing).
+ */
+export function rerunCandidates(results: TestResult[], exp: Expectations, knownFailures: ReadonlySet<string> = new Set()): string[] {
   const locked = new Set([...exp.expectPass, ...exp.expectFail.map((e) => e.id)]);
-  return results.filter((r) => r.outcome === "failed" && !locked.has(r.id)).map((r) => r.id);
+  return results.filter((r) => r.outcome === "failed" && !locked.has(r.id) && !knownFailures.has(r.id)).map((r) => r.id);
 }
 
 export function markFlaky(results: TestResult[], rerun: TestResult[]): TestResult[] {

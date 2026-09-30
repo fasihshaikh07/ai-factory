@@ -29,6 +29,8 @@ export interface ProduceInput {
   onRemoved?: (id: string) => Promise<void>;
   /** For author-tests-on-base: only run these tests. */
   onlyTests?: string[];
+  /** tests that failed in the baseline: never re-run as possibly flaky */
+  knownFailures?: ReadonlySet<string>;
   /** Per-run package folder, kept between producer runs (restore is the slow part). */
   packagesDir?: string;
   /** A raw `dotnet test --filter` expression (used to find tests by method name). */
@@ -274,7 +276,7 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
     let probe = true;
     if (dbId && needsProbe(results)) probe = (await rt.exec(dbId, ["pg_isready", "-h", "127.0.0.1"])).code === 0;
 
-    const again = rerunCandidates(results, inp.exp);
+    const again = rerunCandidates(results, inp.exp, inp.knownFailures);
     if (again.length && again.length <= 20 && probe) {
       const dir = join(work, "results-rerun");
       mkdirSync(dir, { recursive: true });
