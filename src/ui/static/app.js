@@ -356,6 +356,9 @@ const retriesOf = (row) => row.tries.filter((t) => t.outcome === "failed" && row
 
 const runState = { id: "", seenGates: new Set(), cost: 0, share: 0, drawer: "", last: undefined };
 
+/** The four live views of one run: [route, icon, label]. */
+const RUN_TABS = [["run", "activity", "Interactive"], ["charts", "bars", "Graphical"], ["stats", "grid", "Statistical"], ["log", "terminal", "Text"]];
+
 function runHeader(r, tab) {
   const id = encodeURIComponent(r.runId);
   const from = (r.sources ?? []).map((s) => (s.kind === "prompt" ? "typed prompt" : s.kind === "file" ? s.name : `Jira ${s.key}`)).join(" + ");
@@ -367,8 +370,11 @@ function runHeader(r, tab) {
       h("div", { class: "meta" }, pill(r.status), h("span", {}, icon("layers"), r.project),
         from ? h("span", {}, icon(kind === "jira" ? "ticket" : kind === "file" ? "file" : "pen"), from) : null,
         h("span", {}, icon("clock"), `started ${ago(r.createdAt)}`)))),
-    h("div", { class: "subnav" }, h("a", { href: `#/runs/${id}`, class: tab === "run" ? "on" : undefined }, icon("activity"), "Progress"),
-      h("a", { href: `#/runs/${id}/design`, class: tab === "design" ? "on" : undefined }, icon("browser"), "Design")),
+    h("nav", { class: "subnav", "aria-label": "Run views" },
+      h("div", { class: "seg", role: "tablist" }, RUN_TABS.map(([key, ico, label]) => h("a", { href: `#/runs/${id}${key === "run" ? "" : `/${key}`}`, role: "tab", "aria-selected": String(tab === key), class: tab === key ? "on" : undefined }, icon(ico), label))),
+      h("span", { class: "sep" }),
+      h("a", { href: `#/runs/${id}/design`, class: tab === "design" ? "on" : undefined }, icon("browser"), "Design"),
+      h("a", { href: `#/runs/${id}/preview`, class: tab === "preview" ? "on" : undefined }, icon("image"), "Preview")),
   ];
 }
 
@@ -544,6 +550,267 @@ function runScreen(id) {
   });
 }
 
+
+// ---------- one run: graphical ----------
+
+const SVGNS = "http://www.w3.org/2000/svg";
+/** Like h(), for SVG. Text goes in as text nodes. */
+function sv(tag, attrs, ...kids) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs ?? {})) {
+    if (v === undefined || v === null) continue;
+    // CSS variables through the CSSOM: the page's policy blocks style="" attributes
+    if (k === "vars") for (const [n, x] of Object.entries(v)) el.style.setProperty(n, String(x));
+    else el.setAttribute(k, String(v));
+  }
+  for (const kid of kids.flat(Infinity)) if (kid !== undefined && kid !== null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+
+const shortStep = (step) => (step.startsWith("implement/") ? step.slice("implement/".length) : step);
+
+/** Horizontal bars, one per row; the widest value fills the chart. */
+function barChart(rows, fmt, cls = "") {
+  const W = 560, rowH = 24, left = 118, right = 64;
+  const max = Math.max(1e-9, ...rows.map((r) => r.value));
+  const H = Math.max(rowH, rows.length * rowH) + 6;
+  return sv("svg", { class: `chart bars ${cls}`, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": rows.map((r) => `${r.label} ${fmt(r.value)}`).join(", ") },
+    rows.map((r, i) => {
+      const y = i * rowH + 4;
+      const w = Math.max(r.value > 0 ? 2 : 0, ((W - left - right) * r.value) / max);
+      return sv("g", { class: `row s-${r.tone ?? "ok"}`, vars: { "--i": i } },
+        sv("title", {}, `${r.label}: ${fmt(r.value)}`),
+        sv("text", { x: left - 8, y: y + 13, class: "lab", "text-anchor": "end" }, r.label.length > 17 ? `${r.label.slice(0, 16)}…` : r.label),
+        sv("rect", { x: left, y, width: W - left - right, height: rowH - 8, rx: 4, class: "trk" }),
+        sv("rect", { x: left, y, width: w, height: rowH - 8, rx: 4, class: "bar" }),
+        sv("text", { x: left + w + 6, y: y + 13, class: "val" }, fmt(r.value)));
+    }));
+}
+
+/** Cumulative cost over time, with the cost limit as a dashed line. */
+function costLine(points, cap) {
+  const W = 560, H = 220, L = 46, R = 12, T = 12, B = 26;
+  if (!points.length) return h("p", { class: "muted small" }, "No model calls yet.");
+  const t0 = Date.parse(points[0].ts), t1 = Math.max(t0 + 1000, Date.parse(points[points.length - 1].ts));
+  const top = Math.max(cap || 0, points[points.length - 1].usd) * 1.08 || 1;
+  const x = (ts) => L + ((Date.parse(ts) - t0) / (t1 - t0)) * (W - L - R);
+  const y = (usd) => T + (1 - usd / top) * (H - T - B);
+  const d = points.map((p, i) => `${i ? "L" : "M"}${x(p.ts).toFixed(1)},${y(p.usd).toFixed(1)}`).join(" ");
+  const area = `${d} L${x(points[points.length - 1].ts).toFixed(1)},${H - B} L${L},${H - B} Z`;
+  const ticks = [0, 0.5, 1].map((k) => top * k);
+  const minutes = (t1 - t0) / 60_000;
+  return sv("svg", { class: "chart line", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Cost over time: ${money(points[points.length - 1].usd)} of ${money(cap)}` },
+    ticks.map((v) => [sv("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" }), sv("text", { x: L - 6, y: y(v) + 4, class: "lab", "text-anchor": "end" }, `$${v.toFixed(v < 10 ? 1 : 0)}`)]),
+    cap ? [sv("line", { x1: L, x2: W - R, y1: y(cap), y2: y(cap), class: "cap" }), sv("text", { x: W - R, y: y(cap) - 5, class: "lab cap-lab", "text-anchor": "end" }, `limit ${money(cap)}`)] : null,
+    sv("path", { d: area, class: "area" }), sv("path", { d, class: "stroke" }),
+    points.length < 60 ? points.map((p) => sv("circle", { cx: x(p.ts), cy: y(p.usd), r: 2.4, class: "pt" }, sv("title", {}, `${new Date(p.ts).toTimeString().slice(0, 8)}  ${money(p.usd)}`))) : null,
+    sv("text", { x: L, y: H - 6, class: "lab" }, new Date(t0).toTimeString().slice(0, 5)),
+    sv("text", { x: W - R, y: H - 6, class: "lab", "text-anchor": "end" }, `+${minutes < 90 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`}`));
+}
+
+const toneOfStep = (x) => (x.outcome === "completed" ? (x.retries ? "wait" : "ok") : x.outcome === "failed" || x.outcome === "parked" ? "bad" : "live");
+
+function chartsScreen(id) {
+  skeleton("grid");
+  let lastJson = "";
+  poll(3000, async (first) => {
+    const [r, st] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}`), api(`/api/runs/${encodeURIComponent(id)}/stats`)]);
+    const json = JSON.stringify(st);
+    if (json === lastJson && !first) return;
+    lastJson = json;
+    const rows = (key) => st.steps.map((x) => ({ label: shortStep(x.step), value: x[key], tone: toneOfStep(x) }));
+    const panel = (i, ico, title, note, body) => h("section", { class: "panel rise", vars: { "--i": i } }, h("div", { class: "panel-head" }, h("h2", {}, icon(ico), title), note ? h("span", { class: "small muted" }, note) : null), body);
+    const empty = h("p", { class: "muted small" }, "No steps yet.");
+    mount([...runHeader(r, "charts"),
+      h("div", { class: "grid-2 even" },
+        panel(0, "dollar", "Cost per step", money(st.totalUsd), st.steps.length ? barChart(rows("costUsd"), money) : empty),
+        panel(1, "clock", "Machine time per step", `${st.activeMin.toFixed(1)} min`, st.steps.length ? barChart(rows("activeSec"), secs, "time") : empty),
+        panel(2, "activity", "Cost over time", `limit ${money(st.capUsd)}`, costLine(st.costOverTime, st.capUsd)),
+        panel(3, "loop", "Retries per step", `${st.retries} in all`, st.steps.length ? barChart(rows("retries"), (n) => String(Math.round(n)), "retries") : empty)),
+      h("p", { class: "legend small muted" }, h("span", { class: "sw ok" }), "first try", h("span", { class: "sw wait" }), "needed a retry", h("span", { class: "sw live" }), "running", h("span", { class: "sw bad" }), "failed or parked"),
+    ], first);
+  });
+}
+
+// ---------- one run: statistical ----------
+
+const kTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(Math.round(n)));
+
+function statsScreen(id) {
+  skeleton("grid");
+  let lastJson = "";
+  const prev = {};
+  poll(3000, async (first) => {
+    const [r, st] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}`), api(`/api/runs/${encodeURIComponent(id)}/stats`)]);
+    const json = JSON.stringify(st);
+    if (json === lastJson && !first) return;
+    lastJson = json;
+    const tile = (i, key, ico, label, value, fmt, unit, small, cls) => {
+      const big = h("span");
+      countUp(big, value, fmt, prev[key] ?? 0);
+      prev[key] = value;
+      return h("div", { class: `panel tile rise ${cls ?? ""}`, vars: { "--i": i } }, h("div", { class: "k" }, icon(ico), label), h("div", { class: "big" }, big, unit ? h("span", { class: "u" }, unit) : null), h("div", { class: "sm" }, small));
+    };
+    const left = Math.max(0, st.capUsd - st.totalUsd);
+    const ftp = st.firstTimePass.finished ? (st.firstTimePass.passed / st.firstTimePass.finished) * 100 : 0;
+    mount([...runHeader(r, "stats"), h("div", { class: "tiles" },
+      tile(0, "cost", "dollar", "Total cost", st.totalUsd, money, "", `${st.costOverTime.length} model or agent calls`),
+      tile(1, "left", "gauge", "Limit left", left, money, "", `of ${money(st.capUsd)} · ${Math.round((st.totalUsd / (st.capUsd || 1)) * 100)}% used`, left < st.capUsd * 0.1 ? "warn" : ""),
+      tile(2, "active", "clock", "Machine time", st.activeMin, (n) => n.toFixed(1), "min", `wall clock ${st.wallMin.toFixed(0)} min, including waiting for people`),
+      tile(3, "attempts", "loop", "Attempts", st.attempts, (n) => String(Math.round(n)), "", `${st.retries} retr${st.retries === 1 ? "y" : "ies"} across ${st.steps.length} steps`),
+      tile(4, "ftp", "check", "First-time pass", ftp, (n) => String(Math.round(n)), st.firstTimePass.finished ? "%" : "", `${st.firstTimePass.passed} of ${st.firstTimePass.finished} finished steps`),
+      tile(5, "gates", "shield", "Gates passed", st.gates.passed, (n) => String(Math.round(n)), `/ ${st.gates.passed + st.gates.failed}`, st.gates.failed ? `${st.gates.failed} failed (a failed gate makes the step retry)` : "none failed", st.gates.failed ? "warn" : ""),
+      tile(6, "human", "user", "Human stops", st.humanStops, (n) => String(Math.round(n)), "", "cards answered in the terminal"),
+      tile(7, "tokens", "activity", "Tokens in / out", st.tokens.input, kTokens, `/ ${kTokens(st.tokens.output)}`, `${kTokens(st.tokens.cached)} read from the prompt cache`),
+    )], first);
+  });
+}
+
+// ---------- one run: text ----------
+
+function logScreen(id) {
+  skeleton();
+  const ui = { step: "", type: "", q: "", follow: true, source: "events", open: new Set(), built: false };
+  let data = { events: [], trace: [], total: 0 };
+  let list, count, stepSel, typeSel;
+  const options = (sel, values, all) => {
+    const cur = sel.value;
+    sel.replaceChildren(h("option", { value: "" }, all), ...values.map((v) => h("option", { value: v }, v)));
+    sel.value = values.includes(cur) ? cur : "";
+  };
+  const paint = () => {
+    const q = ui.q.trim().toLowerCase();
+    let rows;
+    if (ui.source === "events") {
+      rows = data.events.filter((e) => (!ui.step || e.step === ui.step) && (!ui.type || e.type === ui.type) && (!q || `${e.type} ${e.step ?? ""} ${JSON.stringify(e.detail)}`.toLowerCase().includes(q)));
+      list.replaceChildren(...rows.map((e) => {
+        const d = h("details", { class: `ev k-${e.type.split(".")[0]}`, "data-seq": e.seq, open: ui.open.has(e.seq) },
+          h("summary", {}, h("span", { class: "seq" }, `#${e.seq}`), h("span", { class: "t" }, new Date(e.ts).toTimeString().slice(0, 8)), h("span", { class: "ty" }, e.type),
+            h("span", { class: "st" }, e.step ? `${e.step}${e.attempt ? `#${e.attempt}` : ""}` : "")),
+          h("pre", {}, JSON.stringify(e.detail, null, 2)));
+        d.addEventListener("toggle", () => { if (d.open) ui.open.add(e.seq); else ui.open.delete(e.seq); });
+        return d;
+      }));
+    } else {
+      rows = data.trace.filter((t) => (!ui.step || t.step === ui.step) && (!q || `${t.kind} ${t.msg}`.toLowerCase().includes(q)));
+      list.replaceChildren(...rows.map((t) => h("div", { class: `tl k-${t.kind}` }, h("span", { class: "t" }, new Date(t.ts).toTimeString().slice(0, 8)), h("span", { class: "st" }, t.step ?? "run"), h("span", {}, t.msg))));
+    }
+    count.textContent = `${rows.length} of ${ui.source === "events" ? data.events.length : data.trace.length} ${ui.source === "events" ? "events" : "trace lines"}`;
+    if (ui.follow) list.scrollTop = list.scrollHeight;
+  };
+  poll(2000, async () => {
+    const [r, ev] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}`), api(`/api/runs/${encodeURIComponent(id)}/events`)]);
+    const changed = ev.total !== data.total || ev.trace.length !== data.trace.length;
+    data = ev;
+    if (!ui.built) {
+      ui.built = true;
+      stepSel = h("select", { "aria-label": "Step", onchange: () => { ui.step = stepSel.value; paint(); } });
+      typeSel = h("select", { "aria-label": "Event type", onchange: () => { ui.type = typeSel.value; paint(); } });
+      const search = h("input", { type: "text", placeholder: "Search", "aria-label": "Search", oninput: () => { ui.q = search.value; paint(); } });
+      const follow = h("input", { type: "checkbox", checked: true, onchange: () => { ui.follow = follow.checked; if (ui.follow) paint(); } });
+      const src = (key, label) => h("button", { type: "button", class: `tab${ui.source === key ? " on" : ""}`, "data-src": key, onclick: (e) => {
+        ui.source = key;
+        e.currentTarget.parentElement.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", b.dataset.src === key));
+        typeSel.disabled = key !== "events";
+        paint();
+      } }, label);
+      list = h("div", { class: "log", role: "log", "aria-live": "off" });
+      list.addEventListener("scroll", () => {
+        const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
+        if (ui.follow !== atBottom) { ui.follow = atBottom; follow.checked = atBottom; }
+      });
+      count = h("span", { class: "small muted" });
+      mount([...runHeader(r, "log"), h("section", { class: "panel" },
+        h("div", { class: "log-bar" }, h("div", { class: "tabs-in" }, src("events", "Ledger events"), src("trace", "Trace lines")), stepSel, typeSel, search,
+          h("label", { class: "follow" }, follow, h("span", { class: "live" }), "Follow")),
+        list,
+        h("div", { class: "log-foot" }, count, h("code", { class: "small muted" }, `factory logs ${r.runId} --follow`)))], true);
+    }
+    if (changed || !list.childElementCount) {
+      options(stepSel, [...new Set([...data.events.map((e) => e.step), ...data.trace.map((t) => t.step)].filter(Boolean))], "All steps");
+      options(typeSel, [...new Set(data.events.map((e) => e.type))].sort(), "All event types");
+      paint();
+    }
+  });
+}
+
+// ---------- one run: preview ----------
+
+const VIEWPORTS = [["phone", 390], ["tablet", 768], ["desktop", 1280]];
+/** One resize listener for the whole page; the preview screen sets what it does. */
+let onResize = () => {};
+window.addEventListener("resize", () => onResize());
+
+function lightbox(img) {
+  const close = () => { box.classList.remove("open"); setTimeout(() => box.remove(), reduced ? 0 : 220); document.removeEventListener("keydown", esc); };
+  const esc = (e) => { if (e.key === "Escape") close(); };
+  let body;
+  if (img.beforeUrl) {
+    const after = h("img", { src: img.url, alt: `${img.screen} after`, class: "after" });
+    const range = h("input", { type: "range", min: 0, max: 100, value: 50, "aria-label": "Before and after", class: "ba-range" });
+    const set = () => { after.style.clipPath = `inset(0 0 0 ${range.value}%)`; handle.style.transform = `translateX(${range.value}%)`; };
+    const handle = h("div", { class: "ba-handle" }, h("span", {}));
+    body = h("div", { class: "ba" }, h("img", { src: img.beforeUrl, alt: `${img.screen} before` }), after, h("div", { class: "ba-line" }, handle), range,
+      h("span", { class: "ba-lab l" }, "before"), h("span", { class: "ba-lab r" }, "after"));
+    range.addEventListener("input", set);
+    set();
+  } else body = h("img", { src: img.url, alt: img.screen });
+  const box = h("div", { class: "lightbox", role: "dialog", "aria-label": img.screen, onclick: (e) => { if (e.target === box) close(); } },
+    h("figure", {}, h("button", { class: "icon-btn x", type: "button", "aria-label": "Close", onclick: close }, icon("x")), body,
+      h("figcaption", {}, h("strong", {}, img.screen), img.req ? h("span", { class: "tag" }, img.req) : null, h("span", { class: "tag" }, img.viewport))));
+  document.body.append(box);
+  document.addEventListener("keydown", esc);
+  nextFrame(() => box.classList.add("open"));
+}
+
+async function previewScreen(id) {
+  skeleton("grid");
+  const [r, p] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}`), api(`/api/runs/${encodeURIComponent(id)}/preview`)]);
+  if (p.none) {
+    mount([...runHeader(r, "preview"), h("div", { class: "slot big-empty rise" }, icon("cursor"), h("strong", {}, "No preview for this run"), h("span", {}, p.none))], true);
+    return;
+  }
+  const pv = p.preview;
+  const url = (path) => p.base + path.split("/").map(encodeURIComponent).join("/");
+  const parts = [];
+  if (pv.site) {
+    const screens = pv.site.screens.length ? pv.site.screens : [{ path: pv.site.entry, title: "Start" }];
+    let width = 1280;
+    const frame = h("iframe", { sandbox: "allow-scripts", title: "Clickable preview", src: url(screens[0].path), referrerpolicy: "no-referrer", loading: "lazy" });
+    const stage = h("div", { class: "device" }, frame);
+    const fit = () => {
+      const avail = stage.parentElement ? stage.parentElement.clientWidth : width;
+      const k = Math.min(1, avail / width);
+      frame.style.width = `${width}px`;
+      frame.style.transform = `scale(${k})`;
+      stage.style.height = `${Math.round(720 * k)}px`;
+      stage.style.width = `${Math.round(width * k)}px`;
+    };
+    const vpBtns = VIEWPORTS.map(([name, w]) => h("button", { type: "button", class: `tab${w === width ? " on" : ""}`, "data-w": w, onclick: (e) => {
+      width = w; e.currentTarget.parentElement.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", Number(b.dataset.w) === w)); fit();
+    } }, icon(name === "desktop" ? "browser" : "grid"), `${name} ${w}`));
+    const list = h("ul", { class: "screens" }, screens.map((sc, i) => h("li", {}, h("button", { type: "button", class: i === 0 ? "on" : undefined, onclick: (e) => {
+      frame.src = url(sc.path);
+      list.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on");
+    } }, h("span", {}, sc.title), sc.req ? h("span", { class: "tag" }, sc.req) : null))));
+    parts.push(h("section", { class: "panel rise", vars: { "--i": 0 } },
+      h("div", { class: "panel-head" }, h("h2", {}, icon("cursor"), "Clickable preview"), h("div", { class: "tabs-in vp" }, vpBtns)),
+      h("div", { class: "pv" }, h("div", {}, h("div", { class: "eyebrow" }, "Screens"), list, h("p", { class: "small muted" }, "Runs in a locked frame: it can't reach this app, the network or your files.")),
+        h("div", { class: "device-wrap" }, stage))));
+    nextFrame(fit);
+    onResize = fit;
+  }
+  if (pv.images.length) {
+    const imgs = pv.images.map((i) => ({ ...i, url: url(i.file), beforeUrl: i.before ? url(i.before) : undefined }));
+    parts.push(h("section", { class: "panel rise", vars: { "--i": 1 } },
+      h("div", { class: "panel-head" }, h("h2", {}, icon("image"), "Designs"), h("span", { class: "small muted" }, `${imgs.length} image${imgs.length === 1 ? "" : "s"} · click to enlarge`)),
+      h("div", { class: "gallery" }, imgs.map((img, i) => h("button", { type: "button", class: "shot rise", vars: { "--i": i }, onclick: () => lightbox(img) },
+        h("img", { src: img.url, alt: img.screen, loading: "lazy" }),
+        h("span", { class: "cap" }, h("strong", {}, img.screen), img.req ? h("span", { class: "tag" }, img.req) : null, h("span", { class: "tag" }, img.viewport), img.beforeUrl ? h("span", { class: "tag ba-tag" }, "before / after") : null))))));
+  }
+  mount([...runHeader(r, "preview"), h("div", { class: "stack" }, parts)], true);
+}
+
 // ---------- design ----------
 
 async function designScreen(id) {
@@ -598,7 +865,7 @@ async function designScreen(id) {
 
 async function dashboardScreen() {
   skeleton();
-  const { outcomes: o, stages } = await api("/api/dashboard");
+  const { outcomes: o, stages, recent = [] } = await api("/api/dashboard");
   const tile = (i, ico, label, value, fmt, unit, small) => {
     const big = h("span");
     countUp(big, value ?? NaN, (n) => (value === undefined || value === null ? "-" : fmt(n)));
@@ -632,6 +899,10 @@ async function dashboardScreen() {
           h("td", { class: "num" }, secs(s.avgActiveSec)),
           h("td", { class: "small" }, s.topProblem ? `${s.topProblem.reason} (${s.topProblem.count}×)` : h("span", { class: "faint" }, "-")),
         )))))) : null,
+    recent.length ? h("section", { class: "panel rise", vars: { "--i": 6 } }, h("div", { class: "panel-head" }, h("h2", {}, icon("activity"), "Recent runs"), h("a", { href: "#/runs", class: "small" }, "All runs")),
+      h("ul", { class: "recent" }, recent.map((r, i) => h("li", { class: `k-${tone(r.status)} rise`, vars: { "--i": i } },
+        h("a", { href: `#/runs/${encodeURIComponent(r.runId)}` }, h("span", { class: "bar" }), h("span", { class: "req" }, r.request || r.runId),
+          pill(r.status), h("span", { class: "mono small muted" }, money(r.costUsd)), h("span", { class: "small faint nowrap" }, ago(r.createdAt))))))) : null,
   ], true);
   nextFrame(() => { for (const [f, share] of fills) f.style.transform = `scaleX(${share})`; });
 }
@@ -641,6 +912,8 @@ async function dashboardScreen() {
 async function route() {
   generation++;
   clearTimeout(timer);
+  onResize = () => {};
+  document.querySelectorAll(".lightbox").forEach((b) => b.remove());
   closeDrawer();
   const hash = location.hash.replace(/^#/, "") || "/new";
   const parts = hash.split("/").filter(Boolean).map(decodeURIComponent);
@@ -651,6 +924,10 @@ async function route() {
     if (top === "new" && parts[1] === "brownfield") await requestScreen();
     else if (top === "new") modeScreen();
     else if (top === "runs" && parts[1] && parts[2] === "design") await designScreen(parts[1]);
+    else if (top === "runs" && parts[1] && parts[2] === "preview") await previewScreen(parts[1]);
+    else if (top === "runs" && parts[1] && parts[2] === "charts") chartsScreen(parts[1]);
+    else if (top === "runs" && parts[1] && parts[2] === "stats") statsScreen(parts[1]);
+    else if (top === "runs" && parts[1] && parts[2] === "log") logScreen(parts[1]);
     else if (top === "runs" && parts[1]) runScreen(parts[1]);
     else if (top === "runs") runsScreen();
     else if (top === "dashboard") await dashboardScreen();
