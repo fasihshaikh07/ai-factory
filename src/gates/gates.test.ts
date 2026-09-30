@@ -120,10 +120,13 @@ describe("test gates", () => {
     // it must really pass today
     const keepFails = run([{ id: "T::A", outcome: "failed", failureKind: "assertion", durationMs: 1 }, { id: "T::K", outcome: "failed", failureKind: "assertion", durationMs: 1 }]);
     expect(failsOnBase.predicate({ run1: keepFails, run2: keepFails, tests: t }, DEFAULT_POLICY).details).toMatch(/works today, but fails on the old code/);
-    // a requirement whose tests all pass today proves nothing
+    // a whole requirement may be keep-working, as long as another requirement's test fails today
+    const req2 = { ...keep, acId: "AC-2.1" };
+    expect(failsOnBase.predicate({ run1: both, run2: both, tests: tests({ tests: [...tests().tests, req2] }) }, DEFAULT_POLICY).passed).toBe(true);
+    // but a run where every test passes today proves nothing
     const onlyKeep = tests({ tests: [keep] });
     const passes = run([{ id: "T::K", outcome: "passed", durationMs: 1 }]);
-    expect(failsOnBase.predicate({ run1: passes, run2: passes, tests: onlyKeep }, DEFAULT_POLICY).details).toMatch(/REQ-1 has no test that fails on the old code/);
+    expect(failsOnBase.predicate({ run1: passes, run2: passes, tests: onlyKeep }, DEFAULT_POLICY).details).toMatch(/No test fails on the old code/);
   });
 });
 

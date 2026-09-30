@@ -162,11 +162,8 @@ export const failsOnBase = defineGate<{ run1: TestRun; run2: TestRun; tests: Acc
       }
     }
     if (!tests.tests.length) fs.push(failure("no-tests", "No acceptance tests were written"));
-    // every requirement needs at least one test that fails on the old code: that's what proves the change is needed
-    const reqs = new Set(tests.tests.map((t) => t.acId.replace(/^AC-(\d+)\..*$/, "REQ-$1")));
-    for (const req of reqs) {
-      if (!tests.tests.some((t) => t.failsOnBase !== false && t.acId.replace(/^AC-(\d+)\..*$/, "REQ-$1") === req)) fs.push(failure("no-failing-test", `${req} has no test that fails on the old code, so nothing proves the change is needed`));
-    }
+    // at least one test must fail on the old code: that's what proves the change is needed
+    if (tests.tests.length && !tests.tests.some((t) => t.failsOnBase !== false)) fs.push(failure("no-failing-test", "No test fails on the old code, so nothing proves the change is needed"));
     return verdict(fs, `${tests.tests.length} AC tests fail on base for the right reason, twice`);
   },
 });

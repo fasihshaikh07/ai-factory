@@ -76,8 +76,10 @@ describe("retry: keep the previous attempt's code or reset", () => {
 
 describe("criterion tests that already pass on the old code", () => {
   const t = (acId: string, testId: string) => ({ acId, testId, failsOnBase: true });
-  it("become must-keep-passing only when their requirement has a failing test", () => {
+  it("become must-keep-passing when some test in the run still fails on the old code", () => {
     const out = keepPassingTests([t("AC-1.1", "a"), t("AC-1.4", "k"), t("AC-2.1", "b")], new Set(["k", "b"]));
-    expect(out.map((x) => [x.testId, x.failsOnBase])).toEqual([["a", true], ["k", false], ["b", true]]);
+    expect(out.map((x) => [x.testId, x.failsOnBase])).toEqual([["a", true], ["k", false], ["b", false]]);
+    // nothing fails today: nothing changes, and the fails-on-base check rejects the run
+    expect(keepPassingTests([t("AC-1.1", "a")], new Set(["a"]))[0]!.failsOnBase).toBe(true);
   });
 });

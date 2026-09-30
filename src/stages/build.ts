@@ -41,12 +41,13 @@ export const reqOfAc = (acId: string) => acId.replace(/^AC-(\d+)\..*$/, "REQ-$1"
 
 /**
  * Criterion tests that already pass on the old code become must-keep-passing (failsOnBase false),
- * but only where the same requirement has another test that still fails: otherwise nothing proves
- * the bug, and the fails-on-base check rejects them as before.
+ * as long as some test in the run still fails on the old code: that one proves the change is needed.
+ * A whole requirement can be "keep this working" (e.g. "whitespace ids are still trimmed").
+ * If every test passes on the old code, nothing proves the bug, and the fails-on-base check rejects them as before.
  */
 export function keepPassingTests<T extends { acId: string; testId: string; failsOnBase: boolean }>(tests: T[], passedOnBase: Set<string>): T[] {
-  const failingReqs = new Set(tests.filter((t) => !passedOnBase.has(t.testId)).map((t) => reqOfAc(t.acId)));
-  return tests.map((t) => (passedOnBase.has(t.testId) && failingReqs.has(reqOfAc(t.acId)) ? { ...t, failsOnBase: false } : t));
+  if (!tests.some((t) => !passedOnBase.has(t.testId))) return tests;
+  return tests.map((t) => (passedOnBase.has(t.testId) ? { ...t, failsOnBase: false } : t));
 }
 
 /** Files the spec's anchors point at: where the test writer should start reading. */
