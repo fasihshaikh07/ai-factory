@@ -84,7 +84,7 @@ flowchart TD
 | author tests | A coding agent writes one test per acceptance criterion. The factory runs them on the old code **twice**; they must fail for the right reason. Then they're locked. | AI + factory |
 | implement ⟲ verify | A coding agent works on one task at a time in a sealed container. The factory then builds, runs the tests, and checks the change stayed in scope, didn't touch locked tests, added no skips or secrets. Each task must also keep earlier tasks' tests passing. Failures loop back with the exact errors; if only tests or the build failed, the retry fixes the existing change instead of starting over. | AI + factory |
 | integrate / accept | Full test suite; every locked test must have run and passed; no new failures vs the baseline. | Factory |
-| review | A reviewer (a different model family when an OpenAI key is set) reads the diff. Whether a finding blocks is decided by code. | AI + code |
+| review | A reviewer (a different model family when an OpenAI key is set) reads the diff, with an OWASP Top 10 checklist for security. Whether a finding blocks is decided by code. | AI + code |
 | deliver | Secret scan of every commit, an evidence manifest commit, and a PR (or a local branch). | Factory |
 
 When something keeps failing, the factory climbs a fixed ladder (retry with the errors → more effort → stronger model) and then **parks** the run for you. Hard limits on attempts, spend and time stop runaway runs; `factory status <run>` shows the running cost.
