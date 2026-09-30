@@ -1,0 +1,110 @@
+{
+ "source": {
+  "name": "SWE-rebench OpenHands trajectories (Qwen3-Coder-480B)",
+  "url": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+  "revision": "35455389ab51bf5e2306bfd436ef72d0f98bf882",
+  "license": "CC-BY-4.0",
+  "retrieved": "2026-09-30",
+  "gives": "Tool-call rounds and outcomes per task, resolved vs unresolved."
+ },
+ "derivedBy": "bench/external/derive/openhands.py",
+ "unit": "tool round = one assistant message that calls a tool",
+ "overall": {
+  "n": 67074,
+  "resolvedRate": 0.479,
+  "roundsP10": 43.0,
+  "roundsP50": 61.0,
+  "roundsP90": 97.0
+ },
+ "byOutcome": [
+  {
+   "resolved": 0,
+   "n": 34913,
+   "roundsP10": 46.0,
+   "roundsP50": 67.0,
+   "roundsP90": 100.0
+  },
+  {
+   "resolved": 1,
+   "n": 32161,
+   "roundsP10": 41.0,
+   "roundsP50": 56.0,
+   "roundsP90": 83.0
+  }
+ ],
+ "byExitStatus": [
+  {
+   "exitStatus": "submit",
+   "n": 60739,
+   "resolvedRate": 0.511
+  },
+  {
+   "exitStatus": "RuntimeError: Agent reached maximum iteration. Current iteration: 100, max iteration: 100",
+   "n": 6003,
+   "resolvedRate": 0.182
+  },
+  {
+   "exitStatus": "AgentStuckInLoopError: Agent got stuck in a loop",
+   "n": 252,
+   "resolvedRate": 0.079
+  },
+  {
+   "exitStatus": "Timeout: litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+   "n": 36,
+   "resolvedRate": 0.472
+  },
+  {
+   "exitStatus": "RuntimeError: There was an unexpected error while running the agent: ServiceUnavailableError. You can refresh the page or ask the agent to try again.",
+   "n": 29,
+   "resolvedRate": 0.241
+  },
+  {
+   "exitStatus": "unknown",
+   "n": 10,
+   "resolvedRate": 0.3
+  },
+  {
+   "exitStatus": "AttributeError: 'str' object has no attribute 'get'",
+   "n": 5,
+   "resolvedRate": 0.2
+  }
+ ],
+ "byPatchSize": [
+  {
+   "patchSize": "0: no patch",
+   "n": 56,
+   "resolvedRate": 0.0,
+   "roundsP50": 71.0
+  },
+  {
+   "patchSize": "1: <=500 chars",
+   "n": 1424,
+   "resolvedRate": 0.612,
+   "roundsP50": 48.0
+  },
+  {
+   "patchSize": "2: 501-2000",
+   "n": 19725,
+   "resolvedRate": 0.548,
+   "roundsP50": 54.0
+  },
+  {
+   "patchSize": "3: 2001-8000",
+   "n": 17457,
+   "resolvedRate": 0.464,
+   "roundsP50": 62.0
+  },
+  {
+   "patchSize": "4: >8000",
+   "n": 28412,
+   "resolvedRate": 0.436,
+   "roundsP50": 68.0
+  }
+ ],
+ "caveats": [
+  "One model (Qwen3-Coder-480B) on one scaffold (OpenHands 0.54), on Python repos from SWE-rebench. Rounds and resolve rate will differ for Claude on the factory's agent.",
+  "Tasks are single GitHub issues, mostly small fixes; they are not multi-file feature work.",
+  "The dataset has no tokens, dollars or wall time, so rounds are the only effort measure taken from it.",
+  "byPatchSize uses the length of the model's patch text as a rough size proxy."
+ ]
+}

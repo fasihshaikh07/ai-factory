@@ -1,0 +1,31 @@
+{
+  "metr": {
+    "name": "METR time-horizon runs (HCAST, RE-Bench, SWAA)",
+    "url": "https://github.com/METR/eval-analysis-public",
+    "revision": "52cb829c7a2efb2d659285c4b1768d191d97f8d2",
+    "files": {
+      "raw/metr-th-1-1-runs.jsonl": "https://raw.githubusercontent.com/METR/eval-analysis-public/52cb829c7a2efb2d659285c4b1768d191d97f8d2/reports/time-horizon-1-1/data/raw/runs.jsonl",
+      "raw/metr-th-1-0-runs.jsonl": "https://raw.githubusercontent.com/METR/eval-analysis-public/52cb829c7a2efb2d659285c4b1768d191d97f8d2/reports/time-horizon-1-0/data/raw/runs.jsonl"
+    },
+    "license": "not stated (repo has no LICENSE file; README says 'See LICENSE file'). Snapshot keeps aggregates only; raw files are git-ignored.",
+    "retrieved": "2026-09-30",
+    "gives": "Reliability, agent wall time and tokens per task, grouped by how long a human expert takes."
+  },
+  "aidev": {
+    "name": "AIDev: agent-authored pull requests on GitHub",
+    "url": "https://huggingface.co/datasets/hao-li/AIDev",
+    "paper": "https://arxiv.org/abs/2602.09185",
+    "revision": "c63c8a57a2de34fc03fa83722412824af4d8753b",
+    "license": "CC-BY-4.0",
+    "retrieved": "2026-09-30",
+    "gives": "Merge rate, time to merge and time to first human review, by PR size and agent."
+  },
+  "openhands": {
+    "name": "SWE-rebench OpenHands trajectories (Qwen3-Coder-480B)",
+    "url": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+    "revision": "35455389ab51bf5e2306bfd436ef72d0f98bf882",
+    "license": "CC-BY-4.0",
+    "retrieved": "2026-09-30",
+    "gives": "Tool-call rounds and outcomes per task, resolved vs unresolved."
+  }
+}

@@ -1,0 +1,2236 @@
+{
+ "source": {
+  "name": "METR time-horizon runs (HCAST, RE-Bench, SWAA)",
+  "url": "https://github.com/METR/eval-analysis-public",
+  "revision": "52cb829c7a2efb2d659285c4b1768d191d97f8d2",
+  "files": {
+   "raw/metr-th-1-1-runs.jsonl": "https://raw.githubusercontent.com/METR/eval-analysis-public/52cb829c7a2efb2d659285c4b1768d191d97f8d2/reports/time-horizon-1-1/data/raw/runs.jsonl",
+   "raw/metr-th-1-0-runs.jsonl": "https://raw.githubusercontent.com/METR/eval-analysis-public/52cb829c7a2efb2d659285c4b1768d191d97f8d2/reports/time-horizon-1-0/data/raw/runs.jsonl"
+  },
+  "license": "not stated (repo has no LICENSE file; README says 'See LICENSE file'). Snapshot keeps aggregates only; raw files are git-ignored.",
+  "retrieved": "2026-09-30",
+  "gives": "Reliability, agent wall time and tokens per task, grouped by how long a human expert takes."
+ },
+ "derivedBy": "bench/external/derive/metr.py",
+ "suites": {
+  "1-1": {
+   "byHumanDuration": [
+    {
+     "bucket": "1: <=5 min",
+     "tasks": 84,
+     "runs": 10008,
+     "success": 0.956,
+     "human_min_median": 0.1,
+     "agent_wall_min_median": 4.0,
+     "agent_wall_min_p90": 82.6,
+     "tokens_median": 409.0,
+     "tokens_p90": 19822.0,
+     "runs_with_tokens": 8677,
+     "runs_with_time": 8950
+    },
+    {
+     "bucket": "2: 5-15 min",
+     "tasks": 36,
+     "runs": 3535,
+     "success": 0.732,
+     "human_min_median": 8.5,
+     "agent_wall_min_median": 59.8,
+     "agent_wall_min_p90": 1608.3,
+     "tokens_median": 43555.0,
+     "tokens_p90": 427044.0,
+     "runs_with_tokens": 3436,
+     "runs_with_time": 3535
+    },
+    {
+     "bucket": "3: 15-60 min",
+     "tasks": 36,
+     "runs": 3512,
+     "success": 0.686,
+     "human_min_median": 30.2,
+     "agent_wall_min_median": 80.8,
+     "agent_wall_min_p90": 2044.0,
+     "tokens_median": 93174.0,
+     "tokens_p90": 881030.0,
+     "runs_with_tokens": 3410,
+     "runs_with_time": 3511
+    },
+    {
+     "bucket": "4: 1-4 h",
+     "tasks": 22,
+     "runs": 2220,
+     "success": 0.317,
+     "human_min_median": 120.0,
+     "agent_wall_min_median": 139.2,
+     "agent_wall_min_p90": 1445.0,
+     "tokens_median": 463008.0,
+     "tokens_p90": 8030176.0,
+     "runs_with_tokens": 2066,
+     "runs_with_time": 2219
+    },
+    {
+     "bucket": "5: 4-16 h",
+     "tasks": 46,
+     "runs": 4361,
+     "success": 0.257,
+     "human_min_median": 480.0,
+     "agent_wall_min_median": 188.4,
+     "agent_wall_min_p90": 2036.2,
+     "tokens_median": 956683.0,
+     "tokens_p90": 13863694.0,
+     "runs_with_tokens": 4230,
+     "runs_with_time": 4361
+    },
+    {
+     "bucket": "6: >16 h",
+     "tasks": 4,
+     "runs": 372,
+     "success": 0.078,
+     "human_min_median": 1111.9,
+     "agent_wall_min_median": 214.8,
+     "agent_wall_min_p90": 2798.4,
+     "tokens_median": 1221365.0,
+     "tokens_p90": 14512869.0,
+     "runs_with_tokens": 360,
+     "runs_with_time": 372
+    }
+   ],
+   "byModelAndDuration": [
+    {
+     "model": "Claude 3 Opus (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.889
+    },
+    {
+     "model": "Claude 3 Opus (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.417
+    },
+    {
+     "model": "Claude 3 Opus (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 143,
+     "success": 0.252
+    },
+    {
+     "model": "Claude 3 Opus (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 86,
+     "success": 0.035
+    },
+    {
+     "model": "Claude 3 Opus (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 180,
+     "success": 0.017
+    },
+    {
+     "model": "Claude 3 Opus (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 17,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New) (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 467,
+     "success": 0.946
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New) (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.549
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New) (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 135,
+     "success": 0.593
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New) (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 83,
+     "success": 0.181
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New) (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 171,
+     "success": 0.117
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New) (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old) (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 467,
+     "success": 0.946
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old) (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.465
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old) (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 141,
+     "success": 0.44
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old) (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 81,
+     "success": 0.123
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old) (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 158,
+     "success": 0.063
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old) (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 14,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 3.7 Sonnet (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.966
+    },
+    {
+     "model": "Claude 3.7 Sonnet (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.826
+    },
+    {
+     "model": "Claude 3.7 Sonnet (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 143,
+     "success": 0.734
+    },
+    {
+     "model": "Claude 3.7 Sonnet (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 89,
+     "success": 0.315
+    },
+    {
+     "model": "Claude 3.7 Sonnet (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 183,
+     "success": 0.148
+    },
+    {
+     "model": "Claude 3.7 Sonnet (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 4 Opus (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 500,
+     "success": 0.966
+    },
+    {
+     "model": "Claude 4 Opus (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 240,
+     "success": 0.863
+    },
+    {
+     "model": "Claude 4 Opus (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 236,
+     "success": 0.839
+    },
+    {
+     "model": "Claude 4 Opus (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 112,
+     "success": 0.321
+    },
+    {
+     "model": "Claude 4 Opus (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 264,
+     "success": 0.231
+    },
+    {
+     "model": "Claude 4 Opus (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.063
+    },
+    {
+     "model": "Claude 4.1 Opus (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.981
+    },
+    {
+     "model": "Claude 4.1 Opus (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.861
+    },
+    {
+     "model": "Claude 4.1 Opus (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 144,
+     "success": 0.889
+    },
+    {
+     "model": "Claude 4.1 Opus (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 88,
+     "success": 0.307
+    },
+    {
+     "model": "Claude 4.1 Opus (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 183,
+     "success": 0.224
+    },
+    {
+     "model": "Claude 4.1 Opus (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Claude Opus 4.5 (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.987
+    },
+    {
+     "model": "Claude Opus 4.5 (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.917
+    },
+    {
+     "model": "Claude Opus 4.5 (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 144,
+     "success": 0.951
+    },
+    {
+     "model": "Claude Opus 4.5 (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 88,
+     "success": 0.466
+    },
+    {
+     "model": "Claude Opus 4.5 (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 184,
+     "success": 0.478
+    },
+    {
+     "model": "Claude Opus 4.5 (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.188
+    },
+    {
+     "model": "Claude Opus 4.6 (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 504,
+     "success": 0.966
+    },
+    {
+     "model": "Claude Opus 4.6 (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 215,
+     "success": 0.93
+    },
+    {
+     "model": "Claude Opus 4.6 (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 216,
+     "success": 0.963
+    },
+    {
+     "model": "Claude Opus 4.6 (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 137,
+     "success": 0.569
+    },
+    {
+     "model": "Claude Opus 4.6 (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 295,
+     "success": 0.62
+    },
+    {
+     "model": "Claude Opus 4.6 (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 24,
+     "success": 0.333
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "1: <=5 min",
+     "runs": 624,
+     "success": 0.905
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "2: 5-15 min",
+     "runs": 207,
+     "success": 0.386
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "3: 15-60 min",
+     "runs": 190,
+     "success": 0.179
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "4: 1-4 h",
+     "runs": 131,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "5: 4-16 h",
+     "runs": 231,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "6: >16 h",
+     "runs": 18,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 1106 (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.891
+    },
+    {
+     "model": "GPT-4 1106 (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 143,
+     "success": 0.427
+    },
+    {
+     "model": "GPT-4 1106 (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 143,
+     "success": 0.224
+    },
+    {
+     "model": "GPT-4 1106 (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 83,
+     "success": 0.012
+    },
+    {
+     "model": "GPT-4 1106 (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 178,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 1106 (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 14,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 Turbo (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 467,
+     "success": 0.919
+    },
+    {
+     "model": "GPT-4 Turbo (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 142,
+     "success": 0.317
+    },
+    {
+     "model": "GPT-4 Turbo (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 143,
+     "success": 0.14
+    },
+    {
+     "model": "GPT-4 Turbo (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 85,
+     "success": 0.035
+    },
+    {
+     "model": "GPT-4 Turbo (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 179,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 Turbo (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4o (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.923
+    },
+    {
+     "model": "GPT-4o (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.486
+    },
+    {
+     "model": "GPT-4o (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 144,
+     "success": 0.25
+    },
+    {
+     "model": "GPT-4o (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 88,
+     "success": 0.08
+    },
+    {
+     "model": "GPT-4o (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 184,
+     "success": 0.022
+    },
+    {
+     "model": "GPT-4o (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.063
+    },
+    {
+     "model": "GPT-5 (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.989
+    },
+    {
+     "model": "GPT-5 (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.917
+    },
+    {
+     "model": "GPT-5 (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 144,
+     "success": 0.938
+    },
+    {
+     "model": "GPT-5 (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 95,
+     "success": 0.326
+    },
+    {
+     "model": "GPT-5 (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 189,
+     "success": 0.423
+    },
+    {
+     "model": "GPT-5 (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.063
+    },
+    {
+     "model": "GPT-5.1-Codex-Max (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 504,
+     "success": 0.998
+    },
+    {
+     "model": "GPT-5.1-Codex-Max (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 216,
+     "success": 0.935
+    },
+    {
+     "model": "GPT-5.1-Codex-Max (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 216,
+     "success": 0.903
+    },
+    {
+     "model": "GPT-5.1-Codex-Max (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 133,
+     "success": 0.436
+    },
+    {
+     "model": "GPT-5.1-Codex-Max (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 276,
+     "success": 0.453
+    },
+    {
+     "model": "GPT-5.1-Codex-Max (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 24,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-5.2",
+     "bucket": "1: <=5 min",
+     "runs": 336,
+     "success": 0.988
+    },
+    {
+     "model": "GPT-5.2",
+     "bucket": "2: 5-15 min",
+     "runs": 147,
+     "success": 0.939
+    },
+    {
+     "model": "GPT-5.2",
+     "bucket": "3: 15-60 min",
+     "runs": 164,
+     "success": 0.97
+    },
+    {
+     "model": "GPT-5.2",
+     "bucket": "4: 1-4 h",
+     "runs": 99,
+     "success": 0.566
+    },
+    {
+     "model": "GPT-5.2",
+     "bucket": "5: 4-16 h",
+     "runs": 196,
+     "success": 0.526
+    },
+    {
+     "model": "GPT-5.2",
+     "bucket": "6: >16 h",
+     "runs": 19,
+     "success": 0.158
+    },
+    {
+     "model": "GPT-5.3-Codex",
+     "bucket": "1: <=5 min",
+     "runs": 528,
+     "success": 0.977
+    },
+    {
+     "model": "GPT-5.3-Codex",
+     "bucket": "2: 5-15 min",
+     "runs": 262,
+     "success": 0.901
+    },
+    {
+     "model": "GPT-5.3-Codex",
+     "bucket": "3: 15-60 min",
+     "runs": 272,
+     "success": 0.956
+    },
+    {
+     "model": "GPT-5.3-Codex",
+     "bucket": "4: 1-4 h",
+     "runs": 157,
+     "success": 0.637
+    },
+    {
+     "model": "GPT-5.3-Codex",
+     "bucket": "5: 4-16 h",
+     "runs": 353,
+     "success": 0.476
+    },
+    {
+     "model": "GPT-5.3-Codex",
+     "bucket": "6: >16 h",
+     "runs": 30,
+     "success": 0.2
+    },
+    {
+     "model": "Gemini 3 Pro",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.996
+    },
+    {
+     "model": "Gemini 3 Pro",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.931
+    },
+    {
+     "model": "Gemini 3 Pro",
+     "bucket": "3: 15-60 min",
+     "runs": 144,
+     "success": 0.938
+    },
+    {
+     "model": "Gemini 3 Pro",
+     "bucket": "4: 1-4 h",
+     "runs": 88,
+     "success": 0.455
+    },
+    {
+     "model": "Gemini 3 Pro",
+     "bucket": "5: 4-16 h",
+     "runs": 184,
+     "success": 0.38
+    },
+    {
+     "model": "Gemini 3 Pro",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.25
+    },
+    {
+     "model": "human",
+     "bucket": "1: <=5 min",
+     "runs": 275,
+     "success": 0.949
+    },
+    {
+     "model": "human",
+     "bucket": "2: 5-15 min",
+     "runs": 99,
+     "success": 0.758
+    },
+    {
+     "model": "human",
+     "bucket": "3: 15-60 min",
+     "runs": 102,
+     "success": 0.657
+    },
+    {
+     "model": "human",
+     "bucket": "4: 1-4 h",
+     "runs": 154,
+     "success": 0.604
+    },
+    {
+     "model": "human",
+     "bucket": "5: 4-16 h",
+     "runs": 131,
+     "success": 0.45
+    },
+    {
+     "model": "human",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.167
+    },
+    {
+     "model": "o1 (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.968
+    },
+    {
+     "model": "o1 (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.75
+    },
+    {
+     "model": "o1 (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 144,
+     "success": 0.736
+    },
+    {
+     "model": "o1 (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 88,
+     "success": 0.295
+    },
+    {
+     "model": "o1 (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 184,
+     "success": 0.103
+    },
+    {
+     "model": "o1 (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "1: <=5 min",
+     "runs": 656,
+     "success": 0.962
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "2: 5-15 min",
+     "runs": 280,
+     "success": 0.657
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "3: 15-60 min",
+     "runs": 260,
+     "success": 0.569
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "4: 1-4 h",
+     "runs": 167,
+     "success": 0.114
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "5: 4-16 h",
+     "runs": 274,
+     "success": 0.047
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "6: >16 h",
+     "runs": 24,
+     "success": 0.0
+    },
+    {
+     "model": "o3 (Inspect)",
+     "bucket": "1: <=5 min",
+     "runs": 468,
+     "success": 0.985
+    },
+    {
+     "model": "o3 (Inspect)",
+     "bucket": "2: 5-15 min",
+     "runs": 144,
+     "success": 0.938
+    },
+    {
+     "model": "o3 (Inspect)",
+     "bucket": "3: 15-60 min",
+     "runs": 144,
+     "success": 0.889
+    },
+    {
+     "model": "o3 (Inspect)",
+     "bucket": "4: 1-4 h",
+     "runs": 88,
+     "success": 0.364
+    },
+    {
+     "model": "o3 (Inspect)",
+     "bucket": "5: 4-16 h",
+     "runs": 184,
+     "success": 0.261
+    },
+    {
+     "model": "o3 (Inspect)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    }
+   ],
+   "taskSources": [
+    {
+     "taskSource": "HCAST",
+     "humanTimeSource": "baseline",
+     "tasks": 94,
+     "humanMinMedian": 22.0
+    },
+    {
+     "taskSource": "HCAST",
+     "humanTimeSource": "estimate",
+     "tasks": 63,
+     "humanMinMedian": 240.0
+    },
+    {
+     "taskSource": "RE-Bench",
+     "humanTimeSource": "baseline",
+     "tasks": 2,
+     "humanMinMedian": 455.2
+    },
+    {
+     "taskSource": "RE-Bench",
+     "humanTimeSource": "estimate",
+     "tasks": 3,
+     "humanMinMedian": 480.0
+    },
+    {
+     "taskSource": "SWAA",
+     "humanTimeSource": "baseline",
+     "tasks": 66,
+     "humanMinMedian": 0.1
+    }
+   ]
+  },
+  "1-0": {
+   "byHumanDuration": [
+    {
+     "bucket": "1: <=5 min",
+     "tasks": 74,
+     "runs": 19142,
+     "success": 0.94,
+     "human_min_median": 0.1,
+     "agent_wall_min_median": 0.7,
+     "agent_wall_min_p90": 8.4,
+     "tokens_median": 7610.0,
+     "tokens_p90": 166587.0,
+     "runs_with_tokens": 2901,
+     "runs_with_time": 3160
+    },
+    {
+     "bucket": "2: 5-15 min",
+     "tasks": 21,
+     "runs": 4951,
+     "success": 0.646,
+     "human_min_median": 10.0,
+     "agent_wall_min_median": 3.1,
+     "agent_wall_min_p90": 25.6,
+     "tokens_median": 73939.0,
+     "tokens_p90": 662050.0,
+     "runs_with_tokens": 4838,
+     "runs_with_time": 4932
+    },
+    {
+     "bucket": "3: 15-60 min",
+     "tasks": 35,
+     "runs": 8395,
+     "success": 0.471,
+     "human_min_median": 32.4,
+     "agent_wall_min_median": 5.3,
+     "agent_wall_min_p90": 43.8,
+     "tokens_median": 138767.0,
+     "tokens_p90": 1780807.0,
+     "runs_with_tokens": 8220,
+     "runs_with_time": 8364
+    },
+    {
+     "bucket": "4: 1-4 h",
+     "tasks": 16,
+     "runs": 3724,
+     "success": 0.287,
+     "human_min_median": 95.2,
+     "agent_wall_min_median": 18.8,
+     "agent_wall_min_p90": 196.8,
+     "tokens_median": 650713.0,
+     "tokens_p90": 5341814.0,
+     "runs_with_tokens": 3565,
+     "runs_with_time": 3711
+    },
+    {
+     "bucket": "5: 4-16 h",
+     "tasks": 22,
+     "runs": 4961,
+     "success": 0.096,
+     "human_min_median": 480.0,
+     "agent_wall_min_median": 33.6,
+     "agent_wall_min_p90": 412.0,
+     "tokens_median": 1888459.0,
+     "tokens_p90": 8065607.0,
+     "runs_with_tokens": 4723,
+     "runs_with_time": 4944
+    },
+    {
+     "bucket": "6: >16 h",
+     "tasks": 2,
+     "runs": 456,
+     "success": 0.004,
+     "human_min_median": 1080.0,
+     "agent_wall_min_median": 24.0,
+     "agent_wall_min_p90": 556.1,
+     "tokens_median": 884517.0,
+     "tokens_p90": 6560698.0,
+     "runs_with_tokens": 445,
+     "runs_with_time": 455
+    }
+   ],
+   "byModelAndDuration": [
+    {
+     "model": "Claude 3 Opus",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.944
+    },
+    {
+     "model": "Claude 3 Opus",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.47
+    },
+    {
+     "model": "Claude 3 Opus",
+     "bucket": "3: 15-60 min",
+     "runs": 301,
+     "success": 0.219
+    },
+    {
+     "model": "Claude 3 Opus",
+     "bucket": "4: 1-4 h",
+     "runs": 128,
+     "success": 0.078
+    },
+    {
+     "model": "Claude 3 Opus",
+     "bucket": "5: 4-16 h",
+     "runs": 176,
+     "success": 0.006
+    },
+    {
+     "model": "Claude 3 Opus",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New)",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.99
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New)",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.667
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New)",
+     "bucket": "3: 15-60 min",
+     "runs": 304,
+     "success": 0.487
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New)",
+     "bucket": "4: 1-4 h",
+     "runs": 128,
+     "success": 0.266
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New)",
+     "bucket": "5: 4-16 h",
+     "runs": 176,
+     "success": 0.097
+    },
+    {
+     "model": "Claude 3.5 Sonnet (New)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old)",
+     "bucket": "1: <=5 min",
+     "runs": 591,
+     "success": 0.983
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old)",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.613
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old)",
+     "bucket": "3: 15-60 min",
+     "runs": 302,
+     "success": 0.384
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old)",
+     "bucket": "4: 1-4 h",
+     "runs": 128,
+     "success": 0.18
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old)",
+     "bucket": "5: 4-16 h",
+     "runs": 176,
+     "success": 0.063
+    },
+    {
+     "model": "Claude 3.5 Sonnet (Old)",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 3.7 Sonnet",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 1.0
+    },
+    {
+     "model": "Claude 3.7 Sonnet",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.857
+    },
+    {
+     "model": "Claude 3.7 Sonnet",
+     "bucket": "3: 15-60 min",
+     "runs": 270,
+     "success": 0.726
+    },
+    {
+     "model": "Claude 3.7 Sonnet",
+     "bucket": "4: 1-4 h",
+     "runs": 128,
+     "success": 0.328
+    },
+    {
+     "model": "Claude 3.7 Sonnet",
+     "bucket": "5: 4-16 h",
+     "runs": 179,
+     "success": 0.045
+    },
+    {
+     "model": "Claude 3.7 Sonnet",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 4 Opus",
+     "bucket": "1: <=5 min",
+     "runs": 576,
+     "success": 1.0
+    },
+    {
+     "model": "Claude 4 Opus",
+     "bucket": "2: 5-15 min",
+     "runs": 126,
+     "success": 0.857
+    },
+    {
+     "model": "Claude 4 Opus",
+     "bucket": "3: 15-60 min",
+     "runs": 207,
+     "success": 0.792
+    },
+    {
+     "model": "Claude 4 Opus",
+     "bucket": "4: 1-4 h",
+     "runs": 95,
+     "success": 0.379
+    },
+    {
+     "model": "Claude 4 Opus",
+     "bucket": "5: 4-16 h",
+     "runs": 131,
+     "success": 0.145
+    },
+    {
+     "model": "Claude 4 Opus",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 4 Sonnet",
+     "bucket": "1: <=5 min",
+     "runs": 576,
+     "success": 0.998
+    },
+    {
+     "model": "Claude 4 Sonnet",
+     "bucket": "2: 5-15 min",
+     "runs": 126,
+     "success": 0.857
+    },
+    {
+     "model": "Claude 4 Sonnet",
+     "bucket": "3: 15-60 min",
+     "runs": 207,
+     "success": 0.763
+    },
+    {
+     "model": "Claude 4 Sonnet",
+     "bucket": "4: 1-4 h",
+     "runs": 96,
+     "success": 0.365
+    },
+    {
+     "model": "Claude 4 Sonnet",
+     "bucket": "5: 4-16 h",
+     "runs": 135,
+     "success": 0.119
+    },
+    {
+     "model": "Claude 4 Sonnet",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "Claude 4.1 Opus",
+     "bucket": "1: <=5 min",
+     "runs": 576,
+     "success": 1.0
+    },
+    {
+     "model": "Claude 4.1 Opus",
+     "bucket": "2: 5-15 min",
+     "runs": 126,
+     "success": 0.841
+    },
+    {
+     "model": "Claude 4.1 Opus",
+     "bucket": "3: 15-60 min",
+     "runs": 210,
+     "success": 0.8
+    },
+    {
+     "model": "Claude 4.1 Opus",
+     "bucket": "4: 1-4 h",
+     "runs": 96,
+     "success": 0.438
+    },
+    {
+     "model": "Claude 4.1 Opus",
+     "bucket": "5: 4-16 h",
+     "runs": 131,
+     "success": 0.221
+    },
+    {
+     "model": "Claude 4.1 Opus",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "Claude Opus 4.5",
+     "bucket": "1: <=5 min",
+     "runs": 428,
+     "success": 0.995
+    },
+    {
+     "model": "Claude Opus 4.5",
+     "bucket": "2: 5-15 min",
+     "runs": 84,
+     "success": 0.857
+    },
+    {
+     "model": "Claude Opus 4.5",
+     "bucket": "3: 15-60 min",
+     "runs": 140,
+     "success": 0.836
+    },
+    {
+     "model": "Claude Opus 4.5",
+     "bucket": "4: 1-4 h",
+     "runs": 64,
+     "success": 0.547
+    },
+    {
+     "model": "Claude Opus 4.5",
+     "bucket": "5: 4-16 h",
+     "runs": 76,
+     "success": 0.474
+    },
+    {
+     "model": "Claude Opus 4.5",
+     "bucket": "6: >16 h",
+     "runs": 6,
+     "success": 0.0
+    },
+    {
+     "model": "Claude Sonnet 4.5",
+     "bucket": "1: <=5 min",
+     "runs": 576,
+     "success": 0.984
+    },
+    {
+     "model": "Claude Sonnet 4.5",
+     "bucket": "2: 5-15 min",
+     "runs": 126,
+     "success": 0.857
+    },
+    {
+     "model": "Claude Sonnet 4.5",
+     "bucket": "3: 15-60 min",
+     "runs": 210,
+     "success": 0.805
+    },
+    {
+     "model": "Claude Sonnet 4.5",
+     "bucket": "4: 1-4 h",
+     "runs": 96,
+     "success": 0.427
+    },
+    {
+     "model": "Claude Sonnet 4.5",
+     "bucket": "5: 4-16 h",
+     "runs": 129,
+     "success": 0.256
+    },
+    {
+     "model": "Claude Sonnet 4.5",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "DeepSeek-R1",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.99
+    },
+    {
+     "model": "DeepSeek-R1",
+     "bucket": "2: 5-15 min",
+     "runs": 167,
+     "success": 0.659
+    },
+    {
+     "model": "DeepSeek-R1",
+     "bucket": "3: 15-60 min",
+     "runs": 276,
+     "success": 0.504
+    },
+    {
+     "model": "DeepSeek-R1",
+     "bucket": "4: 1-4 h",
+     "runs": 129,
+     "success": 0.302
+    },
+    {
+     "model": "DeepSeek-R1",
+     "bucket": "5: 4-16 h",
+     "runs": 169,
+     "success": 0.089
+    },
+    {
+     "model": "DeepSeek-R1",
+     "bucket": "6: >16 h",
+     "runs": 13,
+     "success": 0.0
+    },
+    {
+     "model": "DeepSeek-R1-0528",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.949
+    },
+    {
+     "model": "DeepSeek-R1-0528",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.702
+    },
+    {
+     "model": "DeepSeek-R1-0528",
+     "bucket": "3: 15-60 min",
+     "runs": 278,
+     "success": 0.612
+    },
+    {
+     "model": "DeepSeek-R1-0528",
+     "bucket": "4: 1-4 h",
+     "runs": 127,
+     "success": 0.409
+    },
+    {
+     "model": "DeepSeek-R1-0528",
+     "bucket": "5: 4-16 h",
+     "runs": 174,
+     "success": 0.063
+    },
+    {
+     "model": "DeepSeek-R1-0528",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "DeepSeek-V3",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.975
+    },
+    {
+     "model": "DeepSeek-V3",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.75
+    },
+    {
+     "model": "DeepSeek-V3",
+     "bucket": "3: 15-60 min",
+     "runs": 274,
+     "success": 0.423
+    },
+    {
+     "model": "DeepSeek-V3",
+     "bucket": "4: 1-4 h",
+     "runs": 127,
+     "success": 0.189
+    },
+    {
+     "model": "DeepSeek-V3",
+     "bucket": "5: 4-16 h",
+     "runs": 170,
+     "success": 0.012
+    },
+    {
+     "model": "DeepSeek-V3",
+     "bucket": "6: >16 h",
+     "runs": 11,
+     "success": 0.0
+    },
+    {
+     "model": "DeepSeek-V3-0324",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.992
+    },
+    {
+     "model": "DeepSeek-V3-0324",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.72
+    },
+    {
+     "model": "DeepSeek-V3-0324",
+     "bucket": "3: 15-60 min",
+     "runs": 275,
+     "success": 0.473
+    },
+    {
+     "model": "DeepSeek-V3-0324",
+     "bucket": "4: 1-4 h",
+     "runs": 128,
+     "success": 0.266
+    },
+    {
+     "model": "DeepSeek-V3-0324",
+     "bucket": "5: 4-16 h",
+     "runs": 171,
+     "success": 0.006
+    },
+    {
+     "model": "DeepSeek-V3-0324",
+     "bucket": "6: >16 h",
+     "runs": 11,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-2",
+     "bucket": "1: <=5 min",
+     "runs": 668,
+     "success": 0.394
+    },
+    {
+     "model": "GPT-2",
+     "bucket": "2: 5-15 min",
+     "runs": 19,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-2",
+     "bucket": "3: 15-60 min",
+     "runs": 31,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-2",
+     "bucket": "4: 1-4 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-2",
+     "bucket": "5: 4-16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-2",
+     "bucket": "6: >16 h",
+     "runs": 1,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 0125",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.953
+    },
+    {
+     "model": "GPT-4 0125",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.435
+    },
+    {
+     "model": "GPT-4 0125",
+     "bucket": "3: 15-60 min",
+     "runs": 303,
+     "success": 0.142
+    },
+    {
+     "model": "GPT-4 0125",
+     "bucket": "4: 1-4 h",
+     "runs": 127,
+     "success": 0.016
+    },
+    {
+     "model": "GPT-4 0125",
+     "bucket": "5: 4-16 h",
+     "runs": 176,
+     "success": 0.006
+    },
+    {
+     "model": "GPT-4 0125",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "1: <=5 min",
+     "runs": 583,
+     "success": 0.942
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "2: 5-15 min",
+     "runs": 154,
+     "success": 0.474
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "3: 15-60 min",
+     "runs": 250,
+     "success": 0.192
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "4: 1-4 h",
+     "runs": 117,
+     "success": 0.06
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "5: 4-16 h",
+     "runs": 167,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 0314",
+     "bucket": "6: >16 h",
+     "runs": 15,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 1106",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.948
+    },
+    {
+     "model": "GPT-4 1106",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.542
+    },
+    {
+     "model": "GPT-4 1106",
+     "bucket": "3: 15-60 min",
+     "runs": 301,
+     "success": 0.256
+    },
+    {
+     "model": "GPT-4 1106",
+     "bucket": "4: 1-4 h",
+     "runs": 127,
+     "success": 0.11
+    },
+    {
+     "model": "GPT-4 1106",
+     "bucket": "5: 4-16 h",
+     "runs": 174,
+     "success": 0.006
+    },
+    {
+     "model": "GPT-4 1106",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 Turbo",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.965
+    },
+    {
+     "model": "GPT-4 Turbo",
+     "bucket": "2: 5-15 min",
+     "runs": 166,
+     "success": 0.488
+    },
+    {
+     "model": "GPT-4 Turbo",
+     "bucket": "3: 15-60 min",
+     "runs": 304,
+     "success": 0.148
+    },
+    {
+     "model": "GPT-4 Turbo",
+     "bucket": "4: 1-4 h",
+     "runs": 126,
+     "success": 0.048
+    },
+    {
+     "model": "GPT-4 Turbo",
+     "bucket": "5: 4-16 h",
+     "runs": 171,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4 Turbo",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-4o",
+     "bucket": "1: <=5 min",
+     "runs": 590,
+     "success": 0.949
+    },
+    {
+     "model": "GPT-4o",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.583
+    },
+    {
+     "model": "GPT-4o",
+     "bucket": "3: 15-60 min",
+     "runs": 303,
+     "success": 0.261
+    },
+    {
+     "model": "GPT-4o",
+     "bucket": "4: 1-4 h",
+     "runs": 124,
+     "success": 0.113
+    },
+    {
+     "model": "GPT-4o",
+     "bucket": "5: 4-16 h",
+     "runs": 168,
+     "success": 0.006
+    },
+    {
+     "model": "GPT-4o",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-5",
+     "bucket": "1: <=5 min",
+     "runs": 576,
+     "success": 1.0
+    },
+    {
+     "model": "GPT-5",
+     "bucket": "2: 5-15 min",
+     "runs": 125,
+     "success": 0.864
+    },
+    {
+     "model": "GPT-5",
+     "bucket": "3: 15-60 min",
+     "runs": 206,
+     "success": 0.786
+    },
+    {
+     "model": "GPT-5",
+     "bucket": "4: 1-4 h",
+     "runs": 95,
+     "success": 0.558
+    },
+    {
+     "model": "GPT-5",
+     "bucket": "5: 4-16 h",
+     "runs": 140,
+     "success": 0.257
+    },
+    {
+     "model": "GPT-5",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "GPT-5.1-Codex-Max",
+     "bucket": "1: <=5 min",
+     "runs": 296,
+     "success": 1.0
+    },
+    {
+     "model": "GPT-5.1-Codex-Max",
+     "bucket": "2: 5-15 min",
+     "runs": 83,
+     "success": 0.867
+    },
+    {
+     "model": "GPT-5.1-Codex-Max",
+     "bucket": "3: 15-60 min",
+     "runs": 133,
+     "success": 0.835
+    },
+    {
+     "model": "GPT-5.1-Codex-Max",
+     "bucket": "4: 1-4 h",
+     "runs": 60,
+     "success": 0.583
+    },
+    {
+     "model": "GPT-5.1-Codex-Max",
+     "bucket": "5: 4-16 h",
+     "runs": 82,
+     "success": 0.293
+    },
+    {
+     "model": "GPT-5.1-Codex-Max",
+     "bucket": "6: >16 h",
+     "runs": 8,
+     "success": 0.0
+    },
+    {
+     "model": "Gemini 2.5 Pro Preview",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.995
+    },
+    {
+     "model": "Gemini 2.5 Pro Preview",
+     "bucket": "2: 5-15 min",
+     "runs": 169,
+     "success": 0.828
+    },
+    {
+     "model": "Gemini 2.5 Pro Preview",
+     "bucket": "3: 15-60 min",
+     "runs": 280,
+     "success": 0.575
+    },
+    {
+     "model": "Gemini 2.5 Pro Preview",
+     "bucket": "4: 1-4 h",
+     "runs": 128,
+     "success": 0.297
+    },
+    {
+     "model": "Gemini 2.5 Pro Preview",
+     "bucket": "5: 4-16 h",
+     "runs": 174,
+     "success": 0.057
+    },
+    {
+     "model": "Gemini 2.5 Pro Preview",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "Grok 4",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.986
+    },
+    {
+     "model": "Grok 4",
+     "bucket": "2: 5-15 min",
+     "runs": 169,
+     "success": 0.84
+    },
+    {
+     "model": "Grok 4",
+     "bucket": "3: 15-60 min",
+     "runs": 287,
+     "success": 0.711
+    },
+    {
+     "model": "Grok 4",
+     "bucket": "4: 1-4 h",
+     "runs": 150,
+     "success": 0.453
+    },
+    {
+     "model": "Grok 4",
+     "bucket": "5: 4-16 h",
+     "runs": 212,
+     "success": 0.259
+    },
+    {
+     "model": "Grok 4",
+     "bucket": "6: >16 h",
+     "runs": 42,
+     "success": 0.0
+    },
+    {
+     "model": "Kimi K2 Thinking",
+     "bucket": "1: <=5 min",
+     "runs": 444,
+     "success": 0.975
+    },
+    {
+     "model": "Kimi K2 Thinking",
+     "bucket": "2: 5-15 min",
+     "runs": 126,
+     "success": 0.841
+    },
+    {
+     "model": "Kimi K2 Thinking",
+     "bucket": "3: 15-60 min",
+     "runs": 203,
+     "success": 0.709
+    },
+    {
+     "model": "Kimi K2 Thinking",
+     "bucket": "4: 1-4 h",
+     "runs": 92,
+     "success": 0.359
+    },
+    {
+     "model": "Kimi K2 Thinking",
+     "bucket": "5: 4-16 h",
+     "runs": 129,
+     "success": 0.085
+    },
+    {
+     "model": "Kimi K2 Thinking",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "Qwen2-72B",
+     "bucket": "1: <=5 min",
+     "runs": 577,
+     "success": 0.929
+    },
+    {
+     "model": "Qwen2-72B",
+     "bucket": "2: 5-15 min",
+     "runs": 142,
+     "success": 0.268
+    },
+    {
+     "model": "Qwen2-72B",
+     "bucket": "3: 15-60 min",
+     "runs": 213,
+     "success": 0.127
+    },
+    {
+     "model": "Qwen2-72B",
+     "bucket": "4: 1-4 h",
+     "runs": 44,
+     "success": 0.0
+    },
+    {
+     "model": "Qwen2-72B",
+     "bucket": "5: 4-16 h",
+     "runs": 94,
+     "success": 0.0
+    },
+    {
+     "model": "Qwen2-72B",
+     "bucket": "6: >16 h",
+     "runs": 3,
+     "success": 0.0
+    },
+    {
+     "model": "Qwen2.5-72B",
+     "bucket": "1: <=5 min",
+     "runs": 593,
+     "success": 0.934
+    },
+    {
+     "model": "Qwen2.5-72B",
+     "bucket": "2: 5-15 min",
+     "runs": 167,
+     "success": 0.431
+    },
+    {
+     "model": "Qwen2.5-72B",
+     "bucket": "3: 15-60 min",
+     "runs": 273,
+     "success": 0.223
+    },
+    {
+     "model": "Qwen2.5-72B",
+     "bucket": "4: 1-4 h",
+     "runs": 117,
+     "success": 0.043
+    },
+    {
+     "model": "Qwen2.5-72B",
+     "bucket": "5: 4-16 h",
+     "runs": 155,
+     "success": 0.0
+    },
+    {
+     "model": "Qwen2.5-72B",
+     "bucket": "6: >16 h",
+     "runs": 10,
+     "success": 0.0
+    },
+    {
+     "model": "davinci-002 (GPT-3)",
+     "bucket": "1: <=5 min",
+     "runs": 603,
+     "success": 0.566
+    },
+    {
+     "model": "davinci-002 (GPT-3)",
+     "bucket": "2: 5-15 min",
+     "runs": 193,
+     "success": 0.0
+    },
+    {
+     "model": "davinci-002 (GPT-3)",
+     "bucket": "3: 15-60 min",
+     "runs": 379,
+     "success": 0.0
+    },
+    {
+     "model": "davinci-002 (GPT-3)",
+     "bucket": "4: 1-4 h",
+     "runs": 139,
+     "success": 0.0
+    },
+    {
+     "model": "davinci-002 (GPT-3)",
+     "bucket": "5: 4-16 h",
+     "runs": 152,
+     "success": 0.0
+    },
+    {
+     "model": "davinci-002 (GPT-3)",
+     "bucket": "6: >16 h",
+     "runs": 17,
+     "success": 0.0
+    },
+    {
+     "model": "gpt-3.5-turbo-instruct",
+     "bucket": "1: <=5 min",
+     "runs": 580,
+     "success": 0.862
+    },
+    {
+     "model": "gpt-3.5-turbo-instruct",
+     "bucket": "2: 5-15 min",
+     "runs": 118,
+     "success": 0.025
+    },
+    {
+     "model": "gpt-3.5-turbo-instruct",
+     "bucket": "3: 15-60 min",
+     "runs": 211,
+     "success": 0.0
+    },
+    {
+     "model": "gpt-3.5-turbo-instruct",
+     "bucket": "4: 1-4 h",
+     "runs": 74,
+     "success": 0.0
+    },
+    {
+     "model": "gpt-3.5-turbo-instruct",
+     "bucket": "5: 4-16 h",
+     "runs": 77,
+     "success": 0.0
+    },
+    {
+     "model": "gpt-3.5-turbo-instruct",
+     "bucket": "6: >16 h",
+     "runs": 7,
+     "success": 0.0
+    },
+    {
+     "model": "gpt-oss-120b",
+     "bucket": "1: <=5 min",
+     "runs": 576,
+     "success": 0.965
+    },
+    {
+     "model": "gpt-oss-120b",
+     "bucket": "2: 5-15 min",
+     "runs": 126,
+     "success": 0.738
+    },
+    {
+     "model": "gpt-oss-120b",
+     "bucket": "3: 15-60 min",
+     "runs": 209,
+     "success": 0.67
+    },
+    {
+     "model": "gpt-oss-120b",
+     "bucket": "4: 1-4 h",
+     "runs": 93,
+     "success": 0.376
+    },
+    {
+     "model": "gpt-oss-120b",
+     "bucket": "5: 4-16 h",
+     "runs": 130,
+     "success": 0.1
+    },
+    {
+     "model": "gpt-oss-120b",
+     "bucket": "6: >16 h",
+     "runs": 12,
+     "success": 0.0
+    },
+    {
+     "model": "human",
+     "bucket": "1: <=5 min",
+     "runs": 261,
+     "success": 0.958
+    },
+    {
+     "model": "human",
+     "bucket": "2: 5-15 min",
+     "runs": 92,
+     "success": 0.728
+    },
+    {
+     "model": "human",
+     "bucket": "3: 15-60 min",
+     "runs": 140,
+     "success": 0.643
+    },
+    {
+     "model": "human",
+     "bucket": "4: 1-4 h",
+     "runs": 146,
+     "success": 0.685
+    },
+    {
+     "model": "human",
+     "bucket": "5: 4-16 h",
+     "runs": 144,
+     "success": 0.403
+    },
+    {
+     "model": "human",
+     "bucket": "6: >16 h",
+     "runs": 10,
+     "success": 0.2
+    },
+    {
+     "model": "o1",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.997
+    },
+    {
+     "model": "o1",
+     "bucket": "2: 5-15 min",
+     "runs": 167,
+     "success": 0.707
+    },
+    {
+     "model": "o1",
+     "bucket": "3: 15-60 min",
+     "runs": 271,
+     "success": 0.62
+    },
+    {
+     "model": "o1",
+     "bucket": "4: 1-4 h",
+     "runs": 128,
+     "success": 0.406
+    },
+    {
+     "model": "o1",
+     "bucket": "5: 4-16 h",
+     "runs": 171,
+     "success": 0.111
+    },
+    {
+     "model": "o1",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.985
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "2: 5-15 min",
+     "runs": 164,
+     "success": 0.744
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "3: 15-60 min",
+     "runs": 293,
+     "success": 0.44
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "4: 1-4 h",
+     "runs": 119,
+     "success": 0.269
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "5: 4-16 h",
+     "runs": 162,
+     "success": 0.025
+    },
+    {
+     "model": "o1-preview",
+     "bucket": "6: >16 h",
+     "runs": 15,
+     "success": 0.0
+    },
+    {
+     "model": "o3",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.998
+    },
+    {
+     "model": "o3",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.857
+    },
+    {
+     "model": "o3",
+     "bucket": "3: 15-60 min",
+     "runs": 275,
+     "success": 0.775
+    },
+    {
+     "model": "o3",
+     "bucket": "4: 1-4 h",
+     "runs": 115,
+     "success": 0.583
+    },
+    {
+     "model": "o3",
+     "bucket": "5: 4-16 h",
+     "runs": 127,
+     "success": 0.173
+    },
+    {
+     "model": "o3",
+     "bucket": "6: >16 h",
+     "runs": 11,
+     "success": 0.0
+    },
+    {
+     "model": "o4-mini",
+     "bucket": "1: <=5 min",
+     "runs": 592,
+     "success": 0.997
+    },
+    {
+     "model": "o4-mini",
+     "bucket": "2: 5-15 min",
+     "runs": 168,
+     "success": 0.833
+    },
+    {
+     "model": "o4-mini",
+     "bucket": "3: 15-60 min",
+     "runs": 276,
+     "success": 0.714
+    },
+    {
+     "model": "o4-mini",
+     "bucket": "4: 1-4 h",
+     "runs": 121,
+     "success": 0.488
+    },
+    {
+     "model": "o4-mini",
+     "bucket": "5: 4-16 h",
+     "runs": 147,
+     "success": 0.143
+    },
+    {
+     "model": "o4-mini",
+     "bucket": "6: >16 h",
+     "runs": 16,
+     "success": 0.0
+    }
+   ],
+   "taskSources": [
+    {
+     "taskSource": "HCAST",
+     "humanTimeSource": "baseline",
+     "tasks": 81,
+     "humanMinMedian": 27.8
+    },
+    {
+     "taskSource": "HCAST",
+     "humanTimeSource": "estimate",
+     "tasks": 16,
+     "humanMinMedian": 300.0
+    },
+    {
+     "taskSource": "RE-Bench",
+     "humanTimeSource": "baseline",
+     "tasks": 4,
+     "humanMinMedian": 479.2
+    },
+    {
+     "taskSource": "RE-Bench",
+     "humanTimeSource": "estimate",
+     "tasks": 3,
+     "humanMinMedian": 480.0
+    },
+    {
+     "taskSource": "SWAA",
+     "humanTimeSource": "baseline",
+     "tasks": 66,
+     "humanMinMedian": 0.1
+    }
+   ]
+  }
+ },
+ "caveats": [
+  "human_minutes is a geometric-mean expert baseline for 'baseline' tasks and a judgment for 'estimate' tasks (see taskSources).",
+  "Tasks are HCAST, RE-Bench and SWAA: research/ML/security/general software tasks, not client feature work.",
+  "Agent wall time and tokens are only present on a subset of runs (runs_with_time, runs_with_tokens).",
+  "Agent wall time is completed_at minus started_at in METR's run warehouse. It is far above the human time for short tasks (median 60 min on 5-15 min tasks), so it likely includes queueing, sandbox waits and retries. Treat it as an upper bound, not as agent working time.",
+  "generation_cost is omitted: it is zero or implausibly small for most runs."
+ ]
+}

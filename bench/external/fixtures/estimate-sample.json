@@ -1,0 +1,60 @@
+{
+  "deliveryModel": "hitl",
+  "planningCostUsd": {
+    "min": 1.5,
+    "max": 3.5
+  },
+  "tasks": [
+    {
+      "id": "EST-1",
+      "humanEquivMinutes": 45,
+      "executor": "factory",
+      "factoryMinutes": 20
+    },
+    {
+      "id": "EST-2",
+      "humanEquivMinutes": 180,
+      "executor": "factory",
+      "factoryMinutes": 60
+    },
+    {
+      "id": "EST-3",
+      "humanEquivMinutes": 480,
+      "executor": "factory",
+      "factoryMinutes": 120
+    },
+    {
+      "id": "EST-4",
+      "humanEquivMinutes": 60,
+      "executor": "joint",
+      "factoryMinutes": 30
+    },
+    {
+      "id": "EST-5",
+      "humanEquivMinutes": 240,
+      "executor": "human"
+    }
+  ],
+  "prs": [
+    {
+      "id": "PR-1",
+      "lines": 90
+    },
+    {
+      "id": "PR-2",
+      "lines": 350
+    },
+    {
+      "id": "PR-3",
+      "lines": 700
+    }
+  ],
+  "assumptions": {
+    "parkedRunRate": 0.1,
+    "prToMergeHours": 8
+  },
+  "planningMinutes": {
+    "min": 8,
+    "max": 25
+  }
+}
