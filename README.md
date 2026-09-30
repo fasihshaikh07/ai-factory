@@ -25,6 +25,7 @@ factory start "Return 404 instead of 500 when an order ID doesn't exist" --proje
 - [Add a project](#add-a-project)
 - [Your first run](#your-first-run)
 - [Use it on your own .NET repo](#use-it-on-your-own-net-repo)
+- [Web screens](#web-screens)
 - [Command reference](#command-reference)
 - [Use it from Claude Code](#use-it-from-claude-code)
 - [Safety model](#safety-model)
@@ -407,6 +408,31 @@ factory show-card <run> --pr       # paste this as the PR description
 
 ---
 
+## Web screens
+
+```bash
+factory ui           # prints a link like http://127.0.0.1:4321/?t=… ; open it in your browser
+```
+
+A local web app to start runs and watch them. Decisions stay in your terminal: every card shows the exact command to paste, with a copy button, and the page has no approve, reject, answer, stop or pause button.
+
+| Screen | What it shows |
+|---|---|
+| New run | Brownfield (Greenfield and Estimate aren't built yet) → project → prompt, a dropped `.md` file (up to 1 MB) and/or a Jira key → optional max cost. The request is checked before a run exists, the same way `factory start` checks it. A second run on a busy project is refused. |
+| Run: Interactive | The pipeline as a chain of steps. Click one for its attempts, why it retried, its gates, cost and time. Also shows cost against the limit, gates, the open card with its command, and the latest activity. |
+| Run: Graphical | Charts: cost per step, time per step, cost over time against the limit, retries per step. |
+| Run: Statistical | Totals: cost, limit left, machine vs wall-clock time, attempts, first-time pass, gates, human stops, tokens. |
+| Run: Text | Every ledger event, filterable by step, type and search, with live follow; click one for its details. Also the trace lines. |
+| Run: Design | How big the UI change is and why, and the app's pages and building blocks ("no web UI found" for a .NET-only repo). |
+| Run: Preview | Clickable mocks and design images, once the estimate module makes them: phone/tablet/desktop widths, a screen list, a gallery with a before/after slider. Until then, it says so. |
+| Dashboard | Outcome numbers across runs (like `factory report --all`), per-stage bars, recent runs. |
+
+Safety: it only listens on this computer (127.0.0.1), needs the key from the printed link (a new one each start), refuses requests from other websites, and never sends keys or `.env` values to the browser (ledger text is secret-masked). A preview runs in a locked frame that can't reach the app, the network or your files.
+
+Screenshots of every screen, dark and light: [docs/screens](docs/screens/). For example, [a running run](docs/screens/run-running-dark.jpg), [its charts](docs/screens/run-graphical-dark.jpg), [the dashboard](docs/screens/dashboard-light.jpg) and [a preview](docs/screens/preview-dark.jpg).
+
+---
+
 ## Command reference
 
 | Command | What it does |
@@ -432,6 +458,7 @@ The request can come from **any one** of a typed prompt, `--file` or `--jira`, o
 | `factory pause <run>` / `stop <run>` | Pauses or stops at the next step boundary. |
 | `factory steer <run> <file>` | Records a requirement change (applying it isn't built yet). |
 | `factory verify-evidence <run>` | Re-runs every gate decision from the ledger. |
+| `factory ui [--port <n>]` | Local web screens: start runs and watch them live (four views per run, dashboard, design, preview). Decisions stay in the terminal. |
 | `factory report [run] [--all] [--json]` | Step scorecard for one run. Across runs (`--all`): outcome numbers first (delivered, cost per delivered change, time from request to branch, human stops, first-time pass), then a per-stage table. `--all --json` prints `{outcomes, stages}`. From the ledgers only, no AI. |
 | `factory design inventory <repo>` | Scans a web app's look: theme settings, shared components and how often each is used, pages. No AI. |
 | `factory design size` | Says how big a UI change is (no UI, screen tweak, new screen, or a change to the shared look), from a plan's file list or a git diff, with reasons. |
@@ -545,6 +572,8 @@ Factory data lives outside the repo, in `~/.factory/`:
 npm test             # all tests, offline: no model calls, no Docker needed
 npm run typecheck
 npm run build
+npm run test:ui      # the web screens in a real browser (Playwright, run in Docker: nothing to install)
+npm run screens      # retake docs/screens/*.jpg, dark and light
 ```
 
 - TypeScript (strict, ESM), Node 22, zod 4 as the single schema source, vitest.
