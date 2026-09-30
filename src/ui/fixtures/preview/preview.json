@@ -1,0 +1,13 @@
+{
+  "site": {
+    "entry": "index.html",
+    "screens": [
+      { "path": "index.html", "title": "Orders list", "req": "REQ-1" },
+      { "path": "order.html", "title": "Order detail", "req": "REQ-2" }
+    ]
+  },
+  "images": [
+    { "file": "img/orders-after.svg", "before": "img/orders-before.svg", "screen": "Orders list", "req": "REQ-1", "viewport": "desktop" },
+    { "file": "img/order-phone.svg", "screen": "Order detail", "req": "REQ-2", "viewport": "phone" }
+  ]
+}

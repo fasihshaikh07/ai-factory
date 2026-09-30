@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orders (mock)</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><strong>Shop admin</strong><a href="index.html">Orders</a></header>
+<main>
+  <h1>Your orders <span class="count" id="count"></span></h1>
+  <table><thead><tr><th>Order</th><th>Item</th><th>Date</th></tr></thead>
+  <tbody>
+    <tr data-href="order.html"><td>#1</td><td>Coffee beans</td><td>2026-09-12</td></tr>
+    <tr data-href="order.html"><td>#2</td><td>Green tea</td><td>2026-09-20</td></tr>
+  </tbody></table>
+</main>
+<script>
+  document.getElementById("count").textContent = document.querySelectorAll("tbody tr").length;
+  for (const tr of document.querySelectorAll("tr[data-href]")) tr.addEventListener("click", () => { location.href = tr.dataset.href; });
+</script>
+</body></html>

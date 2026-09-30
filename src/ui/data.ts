@@ -18,6 +18,9 @@ import { jiraConfigured } from "../sources/jira.js";
 import { brownfieldSteps } from "../stages/modes.js";
 import { factoryHome } from "../util/paths.js";
 import { lastActivity, readTrace } from "../util/trace.js";
+import { maskSecrets } from "../config/env.js";
+import { Redactor } from "../context/secrets.js";
+import { readPreview } from "./preview.js";
 
 // ---------- helpers ----------
 
@@ -225,7 +228,66 @@ export function allScores(): RunScore[] {
 
 export function dashboardView() {
   const runs = allScores();
-  return { outcomes: outcomes(runs), stages: stageStats(runs) };
+  return { outcomes: outcomes(runs), stages: stageStats(runs), recent: runsView(8) };
+}
+
+// ---------- the four status views: events (text) and stats (graphical, statistical) ----------
+
+export const MAX_EVENTS = 5000;
+
+/** The run's ledger events for the text view, secret-masked like the trace, newest last. */
+export function eventsView(ledger: Ledger) {
+  const redactor = new Redactor();
+  const clean = (x: unknown) => JSON.parse(redactor.redact(maskSecrets(JSON.stringify(x))).text) as unknown;
+  const evs = ledger.events();
+  return {
+    total: evs.length,
+    events: evs.slice(-MAX_EVENTS).map((e) => ({
+      seq: e.seq, ts: e.ts, type: e.type,
+      step: e.key ? splitKey(e.key).step : undefined,
+      attempt: e.key ? splitKey(e.key).attempt : undefined,
+      detail: clean({ ...(e.data !== undefined ? { data: e.data } : {}), ...(e.outputs?.length ? { outputs: e.outputs } : {}), ...(e.treeSha ? { treeSha: e.treeSha } : {}), ...(e.inputsHash ? { inputsHash: e.inputsHash } : {}) }),
+    })),
+    trace: readTrace(ledger.dir).filter((t) => t.kind !== "model.turn.detail").slice(-MAX_EVENTS)
+      .map((t) => ({ ts: t.ts, kind: t.kind, step: t.step, msg: redactor.redact(t.msg).text })),
+  };
+}
+
+/** Numbers for the graphical and statistical views, from the scorecard and the ledger. */
+export function statsView(ledger: Ledger) {
+  const s = replay(ledger.events());
+  const score = scoreRun(ledger);
+  const events = ledger.events();
+  let cum = 0;
+  const costOverTime = events.filter((e) => e.type === "usage").map((e) => {
+    cum += Number((e.data as Record<string, unknown> | undefined)?.["gen_ai.usage.cost_usd"] ?? 0);
+    return { ts: e.ts, usd: cum };
+  });
+  const gates = s.gates.length;
+  const passed = s.gates.filter((g) => g.passed).length;
+  const done = score.steps.filter((x) => x.outcome === "completed");
+  const first = events[0]?.ts ?? s.info.createdAt;
+  const lastTs = events[events.length - 1]?.ts ?? first;
+  return {
+    runId: ledger.runId,
+    capUsd: currentCostCap(s),
+    totalUsd: s.costUsd,
+    activeMin: s.activeMs / 60_000,
+    wallMin: first && lastTs ? (Date.parse(lastTs) - Date.parse(first)) / 60_000 : 0,
+    attempts: score.steps.reduce((n, x) => n + x.attempts, 0),
+    retries: score.steps.reduce((n, x) => n + Math.max(0, x.attempts - 1), 0),
+    firstTimePass: { passed: done.filter((x) => x.firstTimePass).length, finished: done.length },
+    gates: { passed, failed: gates - passed },
+    humanStops: score.humanCards?.length ?? 0,
+    tokens: score.steps.reduce((t, x) => ({ input: t.input + x.tokens.input, output: t.output + x.tokens.output, cached: t.cached + x.tokens.cached }), { input: 0, output: 0, cached: 0 }),
+    steps: score.steps.map((x) => ({ step: x.step, costUsd: x.costUsd, activeSec: x.activeSec, attempts: x.attempts, retries: Math.max(0, x.attempts - 1), outcome: x.outcome })),
+    costOverTime,
+  };
+}
+
+/** The run's preview (mocks, designs), or an honest empty state. */
+export function previewView(ledger: Ledger) {
+  return { runId: ledger.runId, ...readPreview(ledger) };
 }
 
 // ---------- design ----------

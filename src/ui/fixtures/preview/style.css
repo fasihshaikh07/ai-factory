@@ -1,0 +1,13 @@
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #f6f7fb; color: #1b1e2b; }
+header { background: #1b1e2b; color: #fff; padding: 14px 20px; display: flex; gap: 16px; align-items: center; }
+header a { color: #c9d1ff; text-decoration: none; }
+main { padding: 20px; max-width: 900px; margin: 0 auto; }
+h1 { margin: 0 0 12px; font-size: 22px; }
+.count { display: inline-block; background: #4f6bff; color: #fff; border-radius: 99px; padding: 0 10px; font-size: 13px; margin-left: 8px; vertical-align: middle; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+td, th { padding: 10px 12px; border-bottom: 1px solid #e6e8f0; text-align: left; }
+tr[data-href] { cursor: pointer; }
+tr[data-href]:hover { background: #eef1ff; }
+.card { background: #fff; border-radius: 10px; padding: 16px; }
+@media (max-width: 500px) { td:nth-child(3), th:nth-child(3) { display: none; } }

@@ -14,7 +14,8 @@ import { fileURLToPath } from "node:url";
 import "../gates/predicates.js";
 import "../design/gates.js";
 import { REPO_ROOT } from "../runners/netinfra.js";
-import { dashboardView, designView, findRun, projectsView, runView, runsView } from "./data.js";
+import { dashboardView, designView, eventsView, findRun, previewView, projectsView, runView, runsView, statsView } from "./data.js";
+import { previewFile } from "./preview.js";
 import { startRun, StartError, type StartDeps } from "./start.js";
 
 export const MAX_BODY_BYTES = 1_000_000;
@@ -27,8 +28,11 @@ interface Route {
   /** "/api/runs/:id" */
   path: string;
   what: string;
-  handle(params: Record<string, string>, body: unknown, deps: StartDeps): Promise<Reply> | Reply;
+  handle(params: Record<string, string>, body: unknown, deps: StartDeps, ctx: RouteContext): Promise<Reply> | Reply;
 }
+
+/** Per-server values a route may need: the key in preview file URLs. */
+interface RouteContext { previewKey: string }
 
 const ok = (json: Json): Reply => ({ status: 200, json });
 const notFound = (what: string): Reply => ({ status: 404, json: { error: what } });
@@ -45,7 +49,22 @@ export const ROUTES: readonly Route[] = [
     method: "GET", path: "/api/runs/:id/design", what: "the design step's data for a run",
     handle: ({ id }) => { const l = findRun(id!); return l ? ok(designView(l)) : notFound(`No run ${id}`); },
   },
-  { method: "GET", path: "/api/dashboard", what: "outcomes and the per-stage table across runs", handle: () => ok(dashboardView()) },
+  {
+    method: "GET", path: "/api/runs/:id/events", what: "the run's ledger events and trace lines, secret-masked (text view)",
+    handle: ({ id }) => { const l = findRun(id!); return l ? ok(eventsView(l)) : notFound(`No run ${id}`); },
+  },
+  {
+    method: "GET", path: "/api/runs/:id/stats", what: "per-step cost, time and retries, cost over time, totals (graphical and statistical views)",
+    handle: ({ id }) => { const l = findRun(id!); return l ? ok(statsView(l)) : notFound(`No run ${id}`); },
+  },
+  {
+    method: "GET", path: "/api/runs/:id/preview", what: "the run's clickable preview and images, or why there is none",
+    handle: ({ id }, _b, _d, ctx) => {
+      const l = findRun(id!);
+      return l ? ok({ ...previewView(l), base: `/preview/${ctx.previewKey}/${encodeURIComponent(l.runId)}/` }) : notFound(`No run ${id}`);
+    },
+  },
+  { method: "GET", path: "/api/dashboard", what: "outcomes, the per-stage table and recent runs", handle: () => ok(dashboardView()) },
   {
     method: "POST", path: "/api/runs", what: "start a run (same checks as factory start), executed in the background",
     handle: async (_p, body, deps) => {
@@ -91,7 +110,7 @@ const STATIC: Record<string, { file: string; type: string }> = {
 };
 
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
@@ -99,15 +118,31 @@ const SECURITY_HEADERS = {
   "Cross-Origin-Resource-Policy": "same-origin",
 };
 
+/**
+ * Preview files: shown in <iframe sandbox="allow-scripts">, so they run in an opaque origin that
+ * can't read this app, its cookie or its API. They may run their own inline scripts, but can't
+ * connect anywhere, submit forms or be framed by another site.
+ */
+const PREVIEW_HEADERS = {
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'; sandbox allow-scripts",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "Referrer-Policy": "no-referrer",
+  // the sandboxed frame has an opaque origin: its own images and scripts must still load
+  "Cross-Origin-Resource-Policy": "cross-origin",
+};
+
 // ---------- server ----------
 
 export interface UiServerOptions {
   /** fixed token (tests); default: random per start */
   token?: string;
+  /** fixed preview key (tests); default: random per start */
+  previewKey?: string;
   deps?: StartDeps;
 }
 
-export interface UiServer { server: Server; token: string }
+export interface UiServer { server: Server; token: string; previewKey: string }
 
 function sameToken(a: string | undefined, b: string): boolean {
   if (!a) return false;
@@ -148,6 +183,8 @@ const LOCKED_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 
 export function createUiServer(opts: UiServerOptions = {}): UiServer {
   const token = opts.token ?? randomBytes(24).toString("base64url");
+  // a second key, only for preview file URLs (a sandboxed frame sends no cookie and no same-site Origin)
+  const previewKey = opts.previewKey ?? randomBytes(18).toString("base64url");
   const deps = opts.deps ?? {};
 
   const server = createServer((req, res) => {
@@ -162,6 +199,8 @@ export function createUiServer(opts: UiServerOptions = {}): UiServer {
     const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`];
     // a page on another site (or a rebound DNS name) can't talk to this server
     if (!allowedHosts.includes(String(req.headers.host ?? ""))) return send(res, 403, "Wrong host.", "text/plain; charset=utf-8");
+    const early = new URL(req.url ?? "/", `http://${req.headers.host}`).pathname;
+    if (early.startsWith("/preview/")) return servePreview(req, res, early);
     const origin = req.headers.origin;
     if (origin !== undefined && !allowedHosts.map((h) => `http://${h}`).includes(origin)) return sendJson(res, 403, { error: "Cross-origin requests are refused." });
     if (req.headers["sec-fetch-site"] === "cross-site") return sendJson(res, 403, { error: "Cross-site requests are refused." });
@@ -205,11 +244,27 @@ export function createUiServer(opts: UiServerOptions = {}): UiServer {
       if (raw === "too-big") return sendJson(res, 413, { error: `The request is over ${MAX_BODY_BYTES / 1_000_000} MB.` });
       try { body = raw ? JSON.parse(raw) : {}; } catch { return sendJson(res, 400, { error: "Bad JSON." }); }
     }
-    const r = await route.handle(params!, body, deps);
+    const r = await route.handle(params!, body, deps, { previewKey });
     return sendJson(res, r.status, r.json);
   }
 
-  return { server, token };
+  /** GET /preview/<previewKey>/<run>/<file>: read-only, the preview key instead of the session key. */
+  function servePreview(req: IncomingMessage, res: ServerResponse, path: string): void {
+    const plain = (status: number, text: string) => { res.writeHead(status, { ...PREVIEW_HEADERS, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }); res.end(text); };
+    if (req.method !== "GET" && req.method !== "HEAD") return plain(405, "Read-only.");
+    // raw (still encoded) segments: the file part is decoded and checked once, in previewFile
+    const [, , key, run, ...rest] = path.split("/");
+    if (!sameToken(key, previewKey)) return plain(401, "Wrong preview key.");
+    let runId: string;
+    try { runId = decodeURIComponent(run ?? ""); } catch { return plain(404, "Not found."); }
+    const l = findRun(runId);
+    const f = l && rest.length ? previewFile(l, rest.join("/")) : undefined;
+    if (!f) return plain(404, "Not found.");
+    res.writeHead(200, { ...PREVIEW_HEADERS, "Content-Type": f.type, "Cache-Control": "no-store" });
+    res.end(req.method === "HEAD" ? undefined : f.body);
+  }
+
+  return { server, token, previewKey };
 }
 
 /** Listen on 127.0.0.1 only. Tries the next ports when the default one is taken. */

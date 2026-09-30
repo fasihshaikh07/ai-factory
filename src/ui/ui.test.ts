@@ -1,6 +1,6 @@
 // factory ui: the server's safety rules, its JSON for a fixture ledger, and starting a run.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ import { _resetStarting } from "./start.js";
 import { renderMarkdown } from "./static/md.js";
 
 const TOKEN = "test-token-0123456789abcdef";
+const PKEY = "preview-key-0123456789abcd";
 const SECRET = "sk-ant-test-not-real-000000000000";
 const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
 
@@ -144,7 +145,7 @@ beforeEach(async () => {
   writeFileSync(join(home, "projects", "api.yaml"), stringify({ project: "api", repo: makeRepo({ "src/Api/Greeter.cs": "namespace Api;\n" }), stack: "dotnet" }));
   ids = await fixture();
   started = [];
-  ui = createUiServer({ token: TOKEN, deps: { execute: (id) => started.push(id) } });
+  ui = createUiServer({ token: TOKEN, previewKey: PKEY, deps: { execute: (id) => started.push(id) } });
   port = await listen(ui, 0);
 });
 
@@ -275,7 +276,7 @@ describe("factory ui: what the screens show", () => {
   it("dashboard: the same numbers as report --all --json", async () => {
     const d = (await call("/api/dashboard")).json();
     const runs = Ledger.listRuns().map((id) => scoreRun(Ledger.open(id)));
-    expect(d).toEqual(JSON.parse(JSON.stringify({ outcomes: outcomes(runs), stages: stageStats(runs) })));
+    expect({ outcomes: d.outcomes, stages: d.stages }).toEqual(JSON.parse(JSON.stringify({ outcomes: outcomes(runs), stages: stageStats(runs) })));
     expect(d.outcomes).toMatchObject({ runs: 3, delivered: 1, parked: 1, waiting: 1 });
   });
 
@@ -361,5 +362,127 @@ describe("factory ui: the card renderer escapes everything", () => {
     expect(html).toContain("<pre><code>factory approve r1 &lt;hash&gt;</code></pre>");
     expect(html).toContain("<li>item &lt;b&gt;x&lt;/b&gt;</li>");
     expect(renderMarkdown('`"quoted"` and \'x\'')).toBe("<p><code>&quot;quoted&quot;</code> and &#39;x&#39;</p>");
+  });
+});
+
+describe("factory ui: the four status views", () => {
+  it("events: every ledger event in order, secrets masked, and trace lines", async () => {
+    const l = Ledger.open(ids.delivered);
+    await l.append({ type: "step.started", key: "review/2", data: { note: `leaked ${SECRET}` } }, HUMAN_WRITER);
+    const r = await call(`/api/runs/${ids.delivered}/events`);
+    expect(r.status).toBe(200);
+    expect(r.body).not.toContain(SECRET);
+    const v = r.json();
+    expect(v.total).toBe(l.events().length);
+    expect(v.events.map((e: { seq: number }) => e.seq)).toEqual(l.events().map((e) => e.seq));
+    const retry = v.events.find((e: { type: string; step?: string }) => e.type === "step.failed" && e.step === "implement/TASK-1");
+    expect(retry).toMatchObject({ attempt: 1, detail: { data: { category: "build", action: "retry" } } });
+    expect(v.events.at(-1).detail.data.note).toContain("«SECRET");
+    expect(Array.isArray(v.trace)).toBe(true);
+  });
+
+  it("stats: per-step cost, time and retries, cost over time against the cap, totals", async () => {
+    const v = (await call(`/api/runs/${ids.delivered}/stats`)).json();
+    const score = scoreRun(Ledger.open(ids.delivered));
+    expect(v.totalUsd).toBeCloseTo(score.costUsd);
+    expect(v.steps.map((x: { step: string }) => x.step)).toEqual(score.steps.map((x) => x.step));
+    expect(v.steps.find((x: { step: string }) => x.step === "implement/TASK-1")).toMatchObject({ attempts: 2, retries: 1, costUsd: 0.75 });
+    expect(v.retries).toBe(1);
+    expect(v.costOverTime.at(-1).usd).toBeCloseTo(v.totalUsd);
+    expect(v.costOverTime.map((p: { usd: number }) => p.usd)).toEqual([...v.costOverTime.map((p: { usd: number }) => p.usd)].sort((a: number, b: number) => a - b));
+    expect(v.capUsd).toBeGreaterThan(0);
+    expect(v.tokens.input).toBeGreaterThan(0);
+    expect(v.gates).toEqual({ passed: 0, failed: 0 });
+    expect(v.firstTimePass.finished).toBeGreaterThan(0);
+    expect((await call(`/api/runs/${ids.waiting}/stats`)).json().humanStops).toBe(1);
+  });
+
+  it("dashboard lists recent runs", async () => {
+    const d = (await call("/api/dashboard")).json();
+    expect(d.recent.map((r: { runId: string }) => r.runId).sort()).toEqual([ids.delivered, ids.waiting, ids.parked].sort());
+  });
+});
+
+describe("factory ui: preview", () => {
+  const FIXTURE = join(staticDir(), "..", "fixtures", "preview");
+  const withPreview = () => cpSync(FIXTURE, join(Ledger.open(ids.delivered).dir, "preview"), { recursive: true });
+  const file = (rest: string, key = PKEY, run = ids.delivered) => call(`/preview/${key}/${run}/${rest}`, { token: null });
+
+  it("no preview: an honest empty state", async () => {
+    const v = (await call(`/api/runs/${ids.delivered}/preview`)).json();
+    expect(v.none).toBe("Clickable mocks appear here once the estimate module produces them.");
+    expect((await file("index.html")).status).toBe(404);
+  });
+
+  it("a preview: screens, images and a base URL; files served read-only with a strict policy", async () => {
+    withPreview();
+    const v = (await call(`/api/runs/${ids.delivered}/preview`)).json();
+    expect(v.preview.site.screens.map((s: { title: string }) => s.title)).toEqual(["Orders list", "Order detail"]);
+    expect(v.preview.images).toHaveLength(2);
+    expect(v.base).toBe(`/preview/${PKEY}/${ids.delivered}/`);
+    const page = await file("index.html");
+    expect(page.status).toBe(200);
+    expect(page.headers["content-type"]).toMatch(/text\/html/);
+    expect(String(page.headers["content-security-policy"])).toMatch(/connect-src 'none'.*sandbox allow-scripts/);
+    expect(page.headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect((await file("img/orders-after.svg")).headers["content-type"]).toBe("image/svg+xml");
+    expect((await call(`/preview/${PKEY}/${ids.delivered}/index.html`, { method: "POST", token: null, headers: { "Content-Type": "application/json" }, body: "{}" })).status).toBe(405);
+  });
+
+  it("needs the preview key, not the session key", async () => {
+    withPreview();
+    expect((await file("index.html", "wrong-key-0123456789abcdef")).status).toBe(401);
+    expect((await file("index.html", TOKEN)).status).toBe(401);
+  });
+
+  it("refuses path traversal, encoded forms, hidden files, odd types and symlinks", async () => {
+    withPreview();
+    const dir = Ledger.open(ids.delivered).dir;
+    writeFileSync(join(dir, "secret.txt"), "ledger-only");
+    writeFileSync(join(dir, "preview", ".env"), `KEY=${SECRET}`);
+    writeFileSync(join(dir, "preview", "tool.exe"), "MZ");
+    symlinkSync(join(dir, "secret.txt"), join(dir, "preview", "link.txt"));
+    symlinkSync(join(dir, "cards"), join(dir, "preview", "cards"));
+    for (const rest of ["../secret.txt", "..%2fsecret.txt", "%2e%2e/secret.txt", "%252e%252e/secret.txt", "img/..%2F..%2Fsecret.txt", "..%5csecret.txt",
+      "%2fetc%2fpasswd", ".env", "tool.exe", "link.txt", `cards/pr-${ids.delivered}.md`, "img/", "", "index.html%00.png"]) {
+      const r = await file(rest);
+      expect(r.status, rest).not.toBe(200);
+      expect(r.body, rest).not.toMatch(/ledger-only|sk-ant|What changed/);
+    }
+    // another run's id through the preview key still only reads that run's preview folder
+    expect((await file("index.html", PKEY, ids.waiting)).status).toBe(404);
+  });
+
+  it("a preview.json that names a file outside its folder isn't shown", async () => {
+    withPreview();
+    writeFileSync(join(Ledger.open(ids.delivered).dir, "preview", "preview.json"), JSON.stringify({ images: [{ file: "../secret.txt", screen: "x" }] }));
+    expect((await call(`/api/runs/${ids.delivered}/preview`)).json().none).toMatch(/outside its folder/);
+  });
+});
+
+describe("factory ui: a run started from the web, watched live", () => {
+  it("the status endpoints show steps as the executor appends them", async () => {
+    let runId = "";
+    const r = await post({ project: "api", prompt: "Greet people with Hello instead of Hi" });
+    expect(r.status).toBe(201);
+    runId = r.json().runId;
+    expect(started).toEqual([runId]);
+    const view = async () => (await call(`/api/runs/${runId}`)).json();
+    expect((await view()).timeline.every((t: { status: string }) => t.status === "pending")).toBe(true);
+    // the stubbed executor works through steps; each read sees exactly what's in the ledger
+    const l = Ledger.open(runId);
+    for (const [i, k] of ["discover", "intake", "ground"].entries()) {
+      await l.append({ type: "step.started", key: `${k}/1`, data: { rung: 0 } }, HUMAN_WRITER);
+      expect((await view()).timeline.find((t: { step: string }) => t.step === k).status).toBe("running");
+      await l.append({ type: "usage", key: `${k}/1`, data: { "gen_ai.usage.cost_usd": 0.1 } }, HUMAN_WRITER);
+      await l.append({ type: "step.completed", key: `${k}/1`, data: {} }, HUMAN_WRITER);
+      const v = await view();
+      expect(v.timeline.filter((t: { status: string }) => t.status === "completed")).toHaveLength(i + 1);
+      expect(v.cost.usd).toBeCloseTo(0.1 * (i + 1));
+      const st = (await call(`/api/runs/${runId}/stats`)).json();
+      expect(st.costOverTime).toHaveLength(i + 1);
+      const ev = (await call(`/api/runs/${runId}/events`)).json();
+      expect(ev.events.at(-1)).toMatchObject({ type: "step.completed", step: k });
+    }
   });
 });

@@ -288,3 +288,24 @@ export const EvidenceManifest = withHeader({
   versions: z.record(z.string(), z.string()),
 });
 export type EvidenceManifest = z.infer<typeof EvidenceManifest>;
+
+/**
+ * Optional: a run's clickable preview (mocks or designs), shown by `factory ui`. No stage writes it
+ * yet; the estimate module will. Lives in the run's ledger dir as preview/preview.json plus files:
+ * a static site (index.html + assets) and/or labelled images. Paths are relative to preview/.
+ */
+export const RunPreview = z.object({
+  site: z.object({
+    entry: z.string().default("index.html"),
+    screens: z.array(z.object({ path: z.string(), title: z.string(), req: z.string().optional() })).default([]),
+  }).optional(),
+  images: z.array(z.object({
+    file: z.string(),
+    screen: z.string(),
+    req: z.string().optional(),
+    viewport: z.enum(["phone", "tablet", "desktop"]).default("desktop"),
+    /** the same screen before the change, for a before/after slider */
+    before: z.string().optional(),
+  })).default([]),
+});
+export type RunPreview = z.infer<typeof RunPreview>;
