@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { failure } from "../gates/engine.js";
 import type { LedgerEvent } from "../contracts/index.js";
-import { earlierTests, labelRegressions, previousAttempt, retryMode } from "./build.js";
+import { keepPassingTests, earlierTests, labelRegressions, previousAttempt, retryMode } from "./build.js";
 
 describe("earlier tasks' locked tests", () => {
   const plan = { tasks: [{ id: "TASK-1" }, { id: "TASK-2" }, { id: "TASK-3" }] };
@@ -71,5 +71,13 @@ describe("retry: keep the previous attempt's code or reset", () => {
     const done = [...failed, ev("step.completed", `${k}/2`), ev("step.started", `${k}/3`)];
     expect(previousAttempt(done, k, [])).toBeUndefined();
     expect(previousAttempt(failed, "implement/TASK-2", [])).toBeUndefined();
+  });
+});
+
+describe("criterion tests that already pass on the old code", () => {
+  const t = (acId: string, testId: string) => ({ acId, testId, failsOnBase: true });
+  it("become must-keep-passing only when their requirement has a failing test", () => {
+    const out = keepPassingTests([t("AC-1.1", "a"), t("AC-1.4", "k"), t("AC-2.1", "b")], new Set(["k", "b"]));
+    expect(out.map((x) => [x.testId, x.failsOnBase])).toEqual([["a", true], ["k", false], ["b", true]]);
   });
 });

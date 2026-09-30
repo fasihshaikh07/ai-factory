@@ -149,6 +149,8 @@ export const failsOnBase = defineGate<{ run1: TestRun; run2: TestRun; tests: Acc
       for (const t of tests.tests) {
         const r = byId.get(t.testId);
         if (!r || r.outcome === "notRun" || r.outcome === "skipped") fs.push(failure("not-executed", `${t.testId} (${t.acId}) didn't run`, { testId: t.testId }));
+        // a must-keep-passing criterion ("stays upper case"): it passes on the old code and must keep passing
+        else if (t.failsOnBase === false) { if (r.outcome !== "passed") fs.push(failure("keep-passing", `${t.testId} (${t.acId}) describes behaviour that works today, but fails on the old code`, { testId: t.testId })); }
         else if (r.outcome === "passed") fs.push(failure("passes-on-base", `${t.testId} (${t.acId}) already passes before any change`, { testId: t.testId }));
         else if (!ok.has(r.failureKind ?? "")) fs.push(failure("wrong-failure-kind", `${t.testId} fails with ${r.failureKind ?? "unknown"}, not an assertion or not-implemented`, { testId: t.testId, frames: r.frames ?? [] }));
       }
@@ -160,6 +162,11 @@ export const failsOnBase = defineGate<{ run1: TestRun; run2: TestRun; tests: Acc
       }
     }
     if (!tests.tests.length) fs.push(failure("no-tests", "No acceptance tests were written"));
+    // every requirement needs at least one test that fails on the old code: that's what proves the change is needed
+    const reqs = new Set(tests.tests.map((t) => t.acId.replace(/^AC-(\d+)\..*$/, "REQ-$1")));
+    for (const req of reqs) {
+      if (!tests.tests.some((t) => t.failsOnBase !== false && t.acId.replace(/^AC-(\d+)\..*$/, "REQ-$1") === req)) fs.push(failure("no-failing-test", `${req} has no test that fails on the old code, so nothing proves the change is needed`));
+    }
     return verdict(fs, `${tests.tests.length} AC tests fail on base for the right reason, twice`);
   },
 });

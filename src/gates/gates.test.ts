@@ -111,6 +111,20 @@ describe("test gates", () => {
     const passes = run([{ id: "T::A", outcome: "passed", durationMs: 1 }]);
     expect(failsOnBase.predicate({ run1: passes, run2: passes, tests: tests() }, DEFAULT_POLICY).details).toMatch(/already passes/);
   });
+
+  it("a must-keep-passing criterion passes on base, as long as its requirement has a test that fails", () => {
+    const keep = { acId: "AC-1.4", file: "tests/ATests.cs", name: "K", testId: "T::K", failsOnBase: false };
+    const t = tests({ tests: [...tests().tests, keep] });
+    const both = run([{ id: "T::A", outcome: "failed", failureKind: "assertion", durationMs: 1 }, { id: "T::K", outcome: "passed", durationMs: 1 }]);
+    expect(failsOnBase.predicate({ run1: both, run2: both, tests: t }, DEFAULT_POLICY).passed).toBe(true);
+    // it must really pass today
+    const keepFails = run([{ id: "T::A", outcome: "failed", failureKind: "assertion", durationMs: 1 }, { id: "T::K", outcome: "failed", failureKind: "assertion", durationMs: 1 }]);
+    expect(failsOnBase.predicate({ run1: keepFails, run2: keepFails, tests: t }, DEFAULT_POLICY).details).toMatch(/works today, but fails on the old code/);
+    // a requirement whose tests all pass today proves nothing
+    const onlyKeep = tests({ tests: [keep] });
+    const passes = run([{ id: "T::K", outcome: "passed", durationMs: 1 }]);
+    expect(failsOnBase.predicate({ run1: passes, run2: passes, tests: onlyKeep }, DEFAULT_POLICY).details).toMatch(/REQ-1 has no test that fails on the old code/);
+  });
 });
 
 describe("plan and review gates", () => {

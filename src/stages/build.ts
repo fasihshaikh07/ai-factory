@@ -36,6 +36,19 @@ type Intent = z.infer<typeof IntentBody>;
 
 const LIGHT_TEST_WRITER = "claude-sonnet-5";
 
+/** "AC-2.3" → "REQ-2". */
+export const reqOfAc = (acId: string) => acId.replace(/^AC-(\d+)\..*$/, "REQ-$1");
+
+/**
+ * Criterion tests that already pass on the old code become must-keep-passing (failsOnBase false),
+ * but only where the same requirement has another test that still fails: otherwise nothing proves
+ * the bug, and the fails-on-base check rejects them as before.
+ */
+export function keepPassingTests<T extends { acId: string; testId: string; failsOnBase: boolean }>(tests: T[], passedOnBase: Set<string>): T[] {
+  const failingReqs = new Set(tests.filter((t) => !passedOnBase.has(t.testId)).map((t) => reqOfAc(t.acId)));
+  return tests.map((t) => (passedOnBase.has(t.testId) && failingReqs.has(reqOfAc(t.acId)) ? { ...t, failsOnBase: false } : t));
+}
+
 /** Files the spec's anchors point at: where the test writer should start reading. */
 export function anchorFiles(spec: Pick<Spec, "requirements">): string[] {
   return [...new Set(spec.requirements.flatMap((r) => (r.anchors ?? []).map((a) => a.path)))].slice(0, 10);
@@ -218,7 +231,9 @@ export const authorTestsStep: StepDef = {
     await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
     await ensureAgentImage(rt, ctx.project.dotnet.sdkImage);
     await ensurePackages(ctx, start);
-    // The test author sees ACs, stub signatures and harness rules. Never the plan's approach.
+    // "already passes" is no longer a failure when the requirement has a failing test: don't push the writer to break a correct test
+    const priorFailures = ctx.priorFailures.filter((f) => f.check !== "passes-on-base");
+        // The test author sees ACs, stub signatures and harness rules. Never the plan's approach.
     const acs = spec.requirements.flatMap((r) => r.acceptance.map((a) => ({ req: r.id, ...a })));
     const pack = buildPack({
       stage: "author-tests", cls: "agent", model, recipeVersion: "1", tools: [], redactor: new Redactor(),
@@ -243,8 +258,8 @@ Return the list of tests you wrote (acId, file, method name) and the probes.`),
         ...(anchorFiles(spec).length ? [S.pointers(anchorFiles(spec).map((p) => ({ path: p, reason: "the code these criteria are about" })))] : []),
         S.artifact("acs", "acceptance-criteria", acs),
         S.artifact("stubs", "stubs", plan.stubs.map((s) => ({ path: s.path, content: s.content }))),
-        ...(ctx.priorFailures.length ? [{ spec: { id: "failures", source: "feedback" as const, trust: "derived" as const, placement: "user" as const }, content: "Your previous attempt was rejected:\n" + ctx.priorFailures.slice(0, 20).map((f) => `- [${f.check}] ${f.message}`).join("\n") }] : []),
-        S.task(`Write the acceptance and characterisation tests now.${ctx.priorFailures.length ? " The previous attempt failed for the reasons above; fix them." : ""}`),
+        ...(priorFailures.length ? [{ spec: { id: "failures", source: "feedback" as const, trust: "derived" as const, placement: "user" as const }, content: "Your previous attempt was rejected:\n" + priorFailures.slice(0, 20).map((f) => `- [${f.check}] ${f.message}`).join("\n") }] : []),
+        S.task(`Write the acceptance and characterisation tests now.${priorFailures.length ? " The previous attempt failed for the reasons above; fix them." : ""}`),
         S.recap(["one test per AC", "tests fail now for the right reason", "characterisation tests pass today", "don't touch production code"]),
       ],
     });
@@ -279,11 +294,15 @@ Return the list of tests you wrote (acId, file, method name) and the probes.`),
         : missing.map((n) => failure("test-not-found", `No test method named ${n} ran. Is it public, in a test project, and marked [Fact]/[Theory]?`));
       return { kind: "fail", category: "other", failures: why, signature: `author-tests:${!found.build.ok ? "compile" : "not-found"}` };
     }
-    const tests = out.tests.flatMap((t) => ids[t.name]!.map((testId) => ({ ...t, testId, failsOnBase: true })));
+    // A criterion can describe behaviour that must keep working ("an upper-case grade stays upper case"):
+    // its test passes on the old code by design. Lock it as must-keep-passing, as long as its requirement
+    // still has a test that fails on the old code, which proves the change is needed.
+    const passedOnBase = new Set(found.testRun.results.filter((r) => r.outcome === "passed").map((r) => r.id));
+    const tests = keepPassingTests(out.tests.flatMap((t) => ids[t.name]!.map((testId) => ({ ...t, testId, failsOnBase: true }))), passedOnBase);
     const characterisation = out.characterisation.flatMap((c) => ids[c.name]!.map((testId) => ({ ...c, testId, passesOnBase: true })));
     const exp: Expectations = {
-      expectPass: characterisation.map((c) => c.testId),
-      expectFail: tests.map((t) => ({ id: t.testId, kinds: ["assertion", "not-implemented"] })),
+      expectPass: [...characterisation.map((c) => c.testId), ...tests.filter((t) => !t.failsOnBase).map((t) => t.testId)],
+      expectFail: tests.filter((t) => t.failsOnBase).map((t) => ({ id: t.testId, kinds: ["assertion", "not-implemented"] })),
       compareToBaseline: [],
     };
     const only = [...tests.map((t) => t.testId), ...characterisation.map((c) => c.testId)];
