@@ -506,6 +506,8 @@ describe("light and full lanes (fakes)", () => {
     expect(s.steps.get("drafts")!.data!.models).toEqual(["claude-sonnet-5"]);
     expect(s.steps.get("merge")!.data!.singleDraft).toBe(true);
     expect(s.steps.get("specify")!.data!.lane).toBe("light");
+    // one question round: what round 1 didn't settle is an assumption
+    expect(s.steps.get("clarify-2")!.data).toMatchObject({ skipped: true, lightLane: true });
     expect(writer()).toMatchObject({ model: "claude-sonnet-5", maxTurns: 25 });
     expect(writer().maxUsd).toBeLessThanOrEqual(4);
     expect(writer().system).toContain("At most 2 characterisation tests");
@@ -518,6 +520,7 @@ describe("light and full lanes (fakes)", () => {
     expect(s.steps.get("drafts")!.data!.models).toHaveLength(3);
     expect(s.steps.get("merge")!.data!.singleDraft).toBeUndefined();
     expect(s.steps.get("specify")!.data!.lane).toBe("full");
+    expect(s.steps.get("clarify-2")!.data?.lightLane).toBeUndefined();
     expect(writer()).toMatchObject({ model: "claude-opus-5-5", maxTurns: 60, maxUsd: 4 });
     expect(writer().system).not.toContain("At most 2 characterisation tests");
   });

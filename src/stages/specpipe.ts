@@ -187,8 +187,11 @@ async function checkSpec(ctx: StepContext, spec: Spec, i: ReturnType<typeof inpu
       sections: [
         S.template("tpl", `Adversarial reviewer. Find defects in this spec; don't praise; don't rewrite it.
 Rubric: 1 conflicts between requirements 2 missing error, empty and permission paths 3 ACs not observable at a public surface 4 scope creep beyond the intent 5 claims about existing behaviour without anchors 6 state transitions and existing data 7 behaviour changes outside the requested scope (blast radius) 8 hardcoded identifiers that should be configuration.
-Each finding: rubric number, reqId, severity (critical|high|medium|low), one-sentence evidence in "finding". Empty list if none.`),
+Each finding: rubric number, reqId, severity (critical|high|medium|low), one-sentence evidence in "finding". Empty list if none.
+The human answered questions and accepted assumptions (below). Scope they decided is not a defect: don't flag it.`),
         S.artifact("intent", "intent", i.intent),
+        S.artifact("answers", "answers", i.answers),
+        S.artifact("assumptions", "assumptions", i.assumptions),
         S.artifact("cb", "current-behaviour", i.cb),
         S.artifact("spec", "spec", spec),
         S.task("Review the spec."),
@@ -236,7 +239,9 @@ export const specifyStep: StepDef = {
   async run(ctx) {
     const i = inputsOf(ctx);
     const lane = lightSpec(i.intent) ? LANE.light : LANE.full;
-    const merged = requireOutput<{ spec: Spec; conflicts: string[] }>(ctx.state, ctx.ledger, "merge");
+    const merged = requireOutput<{ spec: Spec; conflicts: string[]; singleDraft?: boolean }>(ctx.state, ctx.ledger, "merge");
+    // stability is only measured across drafts: with one draft there's nothing to report
+    const stable = (stab: Record<string, number | undefined>, id: string) => (merged.singleDraft ? undefined : stab[id] ?? 1 / 3);
     // after a rejection, start from the spec the human saw and repair it with their reason first
     const rejections = planRejections(ctx.state);
     let spec = rejections.length ? (readOutput<Spec>(ctx.state, ctx.ledger, "specify") ?? merged.spec) : merged.spec;
@@ -257,7 +262,7 @@ export const specifyStep: StepDef = {
       const { suggestions: _s0, ...draft } = r.output;
       void _s0;
       const stab = Object.fromEntries(spec.requirements.map((q) => [q.id, q.stability]));
-      spec = { ...draft, requirements: draft.requirements.map((q) => ({ ...q, stability: stab[q.id] ?? 1 / 3 })) };
+      spec = { ...draft, requirements: draft.requirements.map((q) => ({ ...q, stability: stable(stab, q.id) })) };
     }
     const manualUi = new Set<string>();
     for (;;) {
@@ -284,7 +289,7 @@ export const specifyStep: StepDef = {
       const stab = Object.fromEntries(spec.requirements.map((q) => [q.id, q.stability]));
       const { suggestions: _s, ...draft } = r.output;
       void _s;
-      spec = { ...draft, requirements: draft.requirements.map((q) => ({ ...q, stability: stab[q.id] ?? 1 / 3 })) };
+      spec = { ...draft, requirements: draft.requirements.map((q) => ({ ...q, stability: stable(stab, q.id) })) };
     }
     const hardLint = checks!.lint.filter((l) => l.blocking && !l.passed);
     if (hardLint.length) {

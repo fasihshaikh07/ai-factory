@@ -6,6 +6,7 @@ import { CurrentBehaviourBody, IntentBody, type Risk } from "../contracts/index.
 import { failure } from "../gates/engine.js";
 import { hashJson } from "../util/hash.js";
 import { requireOutput, type StepContext, type StepDef, type StepOutcome } from "./framework.js";
+import { lightSpec } from "./lane.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
 
 type Intent = z.infer<typeof IntentBody>;
@@ -62,6 +63,8 @@ export const ASK_THRESHOLD = 4;
 export const ROUND1_CAP = 5;
 export const ROUND2_CAP = 3;
 export const TOTAL_CAP = 8;
+/** The light lane asks at most this many questions, in one round. */
+export const LIGHT_QUESTIONS = 3;
 const GOAL_FIRST = ["scope", "blast-radius", "roles", "data-model", "existing-data", "errors", "external", "identifiers", "terminology"];
 
 /** Keep only differences whose cited behaviours exist in ≥2 different sketches. */
@@ -178,7 +181,7 @@ async function runClarifier(ctx: StepContext, intent: Intent, cb: CB, sketches: 
       S.template("tpl", `Requirements analyst. Your only job is finding what is unclear or missing. You don't write the spec.
 Check: scope, data model, user roles and permissions, existing data and state changes, error and failure handling, external systems, hardcoded identifiers (constant or configuration?), behaviour outside the named scope, terminology.
 For each issue: a question with 2-4 options, one "recommended" (copy the option text exactly) with a one-line reason, the intent spans it affects, impact 1-3 with a reason (3 = changes data or who sees what: writes, orders, permissions, money; 2 = a visible flow; 1 = wording). If it comes from a listed disagreement, give its id in "difference".
-Never ask what the code or the readings already answer.${prior ? "\nThe human already answered some questions. Only ask NEW questions that their answers opened up; don't repeat or rephrase answered ones." : ""}
+Never ask what the code or the readings already answer.${lightSpec(intent) ? `\nThis is a small, low-risk change: ask at most ${LIGHT_QUESTIONS} questions, and only ones whose answer changes the code. Everything else (wider scope, other places, existing data) becomes an assumption: keep the change as small as the request allows.` : ""}${prior ? "\nThe human already answered some questions. Only ask NEW questions that their answers opened up; don't repeat or rephrase answered ones." : ""}
 ${UNTRUSTED_NOTE}`),
       S.artifact("intent", "intent", intent.spans),
       S.artifact("cb", "current-behaviour", cb),
@@ -231,7 +234,7 @@ export const clarifyStep: StepDef = {
       const cl = await runClarifier(ctx, intent, cb, sk.sketches, sk.diffs);
       if (!cl.ok) return cl.outcome;
       const scored = scoreQuestions(cl.output.questions, sk.diffs, cb);
-      const { asked, assumptions } = selectQuestions(scored, ROUND1_CAP);
+      const { asked, assumptions } = selectQuestions(scored, lightSpec(intent) ? LIGHT_QUESTIONS : ROUND1_CAP);
       pending = { round: 1, asked, assumptions, differences: sk.diffs, conflicts: cl.output.conflicts, sketches: sk.sketches };
     }
     const { sketches: _s, ...result } = pending;
@@ -246,7 +249,9 @@ export const clarify2Step: StepDef = {
   inputs: (s) => (s.steps.get("clarify")?.status === "completed" ? { r1: s.steps.get("clarify")!.outputs[0] } : undefined),
   async run(ctx) {
     const r1 = requireOutput<ClarifyResult>(ctx.state, ctx.ledger, "clarify");
-    if (!r1.asked.length) return { kind: "done", outputs: { clarify: ctx.ledger.putJson({ round: 2, asked: [], assumptions: [], differences: [], conflicts: [] }) }, data: { skipped: true } };
+    // the light lane has one round: what round 1 didn't settle becomes an assumption on the card
+    const light = lightSpec(requireOutput<Intent>(ctx.state, ctx.ledger, "intake"));
+    if (!r1.asked.length || light) return { kind: "done", outputs: { clarify: ctx.ledger.putJson({ round: 2, asked: [], assumptions: [], differences: [], conflicts: [] }) }, data: { skipped: true, ...(light && r1.asked.length ? { lightLane: true } : {}) } };
     const cacheKey = hashJson({ step: "clarify-2", r1: ctx.state.steps.get("clarify")!.outputs[0] });
     let pending = pendingFor(ctx, cacheKey);
     if (!pending) {
