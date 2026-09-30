@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import type { Failure, LedgerEvent, PlanBody, SpecDraft, TestRun } from "../contracts/index.js";
+import type { Failure, IntentBody, LedgerEvent, PlanBody, SpecDraft, TestRun } from "../contracts/index.js";
 import { scanText } from "../context/secrets.js";
 import { failure, runGate, type GateDef } from "../gates/engine.js";
 import {
@@ -27,9 +27,19 @@ import { modelFor } from "./routing.js";
 import { family } from "../runners/types.js";
 import { S } from "./think.js";
 import { ensureWorktree, runtime, snapshotFor } from "./workspace.js";
-import { splitKey } from "../ledger/state.js";
+import { replay, splitKey } from "../ledger/state.js";
+import { stepBudgetUsd } from "../ledger/caps.js";
+import { LANE, lightBuild } from "./lane.js";
 
 type Plan = z.infer<typeof PlanBody> & { complexity: string };
+type Intent = z.infer<typeof IntentBody>;
+
+const LIGHT_TEST_WRITER = "claude-sonnet-5";
+
+/** Files the spec's anchors point at: where the test writer should start reading. */
+export function anchorFiles(spec: Pick<Spec, "requirements">): string[] {
+  return [...new Set(spec.requirements.flatMap((r) => (r.anchors ?? []).map((a) => a.path)))].slice(0, 10);
+}
 type Spec = z.infer<typeof SpecDraft>;
 
 interface Lock {
@@ -190,15 +200,20 @@ export function resolveTestIds(names: string[], resultIds: string[]): { ids: Rec
 const TEST_SCOPE = ["**/*Test*/**", "**/*test*/**", "tests/**", "test/**"];
 
 export const authorTestsStep: StepDef = {
-  key: "author-tests", stage: "author-tests", templateVersion: "1", coding: true,
+  key: "author-tests", stage: "author-tests", templateVersion: "2", coding: true,
   inputs: (s) => (s.steps.get("stub-commit")?.status === "completed" ? { stubs: s.steps.get("stub-commit")!.outputs[0], spec: s.steps.get("specify")!.outputs[0] } : undefined),
   async run(ctx) {
     const spec = requireOutput<Spec>(ctx.state, ctx.ledger, "specify");
     const plan = requireOutput<Plan>(ctx.state, ctx.ledger, "plan");
+    const intent = requireOutput<Intent>(ctx.state, ctx.ledger, "intake");
+    const light = lightBuild(intent, plan.complexity);
     const start = String(ctx.state.steps.get("stub-commit")!.data!.commit);
     const wt = await ensureWorktree(ctx, start);
     await resetHard(wt, start);
-    const { model, effort } = modelFor(ctx.project, "author-tests", ctx.rung);
+    const routed = modelFor(ctx.project, "author-tests", ctx.rung);
+    // light lane: Sonnet writes the few small tests; Opus stays for bigger work, on escalation, or when the project routes it
+    const model = light && !ctx.project.steps["author-tests"] && ctx.rung < 2 ? LIGHT_TEST_WRITER : routed.model;
+    const { effort } = routed;
     const rt = runtime();
     await ensureEgress(rt, feedHostsFrom(ctx.policy.registryAllowlist));
     await ensureAgentImage(rt, ctx.project.dotnet.sdkImage);
@@ -216,9 +231,16 @@ Rules:
 - New APIs exist as stubs that throw NotImplementedException; tests must compile against them and fail for now.
 - Also write characterisation tests for existing behaviour next to the change that must NOT change; those must pass today.
 - Don't change production code. Don't change test project files unless a package reference is missing and already restored.
-- You may run "dotnet build" to check the tests compile. There's no database in this container; don't try to make tests pass.
+- You may run "dotnet build" to check the tests compile. There's no database in this container; don't try to make tests pass. Don't run "dotnet test": the factory runs the tests itself in its test lab.
+- Test each criterion at its level: "unit" criteria call the class's public method directly (no web host, no database, no job run); "api" criteria call the endpoint. Skip "manual" criteria: a person checks those.`),
+        ...(light ? [S.template("light", `This is a small, low-risk change. Keep the tests small:
+- Write the fewest tests that prove each criterion: usually one test method per criterion, in one new test file next to the existing tests for the class.
+- At most ${LANE.light.maxCharacterisation} characterisation tests, as small unit tests of the same class. They must pass on today's code without any external service or seeded data. Skip them if the criteria already cover the unchanged behaviour.
+- Compile at most once, at the end.`)] : []),
+        S.template("tpl-end", `
 - For each "api" criterion whose endpoint needs NO login, also give one HTTP probe: method, path, optional JSON body, and the status code the criterion expects once implemented. The factory sends it to the running app (with an empty test database) as evidence. Skip criteria that need a login or seeded data.
 Return the list of tests you wrote (acId, file, method name) and the probes.`),
+        ...(anchorFiles(spec).length ? [S.pointers(anchorFiles(spec).map((p) => ({ path: p, reason: "the code these criteria are about" })))] : []),
         S.artifact("acs", "acceptance-criteria", acs),
         S.artifact("stubs", "stubs", plan.stubs.map((s) => ({ path: s.path, content: s.content }))),
         ...(ctx.priorFailures.length ? [{ spec: { id: "failures", source: "feedback" as const, trust: "derived" as const, placement: "user" as const }, content: "Your previous attempt was rejected:\n" + ctx.priorFailures.slice(0, 20).map((f) => `- [${f.check}] ${f.message}`).join("\n") }] : []),
@@ -231,7 +253,7 @@ Return the list of tests you wrote (acId, file, method name) and the probes.`),
       protectedGlobs: CONFIG_INTEGRITY_GLOBS, packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv, noGo: ctx.project.noGo,
       onContainer: async (id) => { await ctx.ledger.append({ type: "container.started", key: "author-tests", data: { id, role: "agent" } }, ctx.writer); },
       onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key: "author-tests", data: { id } }, ctx.writer); },
-    }).run({ step: "author-tests", model, effort, pack, schema: AuthorOut, limits: { maxTurns: 60, maxUsd: 4, timeoutSec: 45 * 60 }, workdir: wt });
+    }).run({ step: "author-tests", model, effort, pack, schema: AuthorOut, limits: { maxTurns: light ? LANE.light.testWriterTurns : LANE.full.testWriterTurns, maxUsd: stepBudgetUsd(replay(ctx.ledger.events()), 4), timeoutSec: 45 * 60 }, workdir: wt });
     await ctx.usage({ model, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, cacheRead: r.usage.cacheRead, cacheWrite: r.usage.cacheWrite, turns: r.usage.turns, wallMs: r.usage.wallMs, estUsd: r.usage.estUsd });
     if (r.status === "config-error") return { kind: "park", reason: r.error ?? "The API rejected the coding agent's request" };
     if (r.status !== "ok") return { kind: "fail", category: r.status === "rate-limited" ? "rate-limit" : "other", failures: [failure(`agent-${r.status}`, r.error ?? r.status)], signature: `author-tests:${r.status}` };
@@ -492,7 +514,7 @@ export function implementStep(taskId: string): StepDef {
         extraProtected: [], packagesDir: packagesDir(ctx.runId), agentEnv: ctx.project.agentEnv, noGo: ctx.project.noGo,
         onContainer: async (id) => { await ctx.ledger.append({ type: "container.started", key, data: { id, role: "agent" } }, ctx.writer); },
         onRemoved: async (id) => { await ctx.ledger.append({ type: "container.removed", key, data: { id } }, ctx.writer); },
-      }).run({ step: "implement", model, effort, pack, schema: ImplementOut, limits: { maxTurns: 80, maxUsd: 4, timeoutSec: 45 * 60 }, workdir: wt });
+      }).run({ step: "implement", model, effort, pack, schema: ImplementOut, limits: { maxTurns: 80, maxUsd: stepBudgetUsd(replay(ctx.ledger.events()), 4), timeoutSec: 45 * 60 }, workdir: wt });
       await ctx.usage({ model, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, cacheRead: r.usage.cacheRead, cacheWrite: r.usage.cacheWrite, turns: r.usage.turns, wallMs: r.usage.wallMs, estUsd: r.usage.estUsd });
       if (r.status === "config-error") return { kind: "park", reason: r.error ?? "The API rejected the coding agent's request" };
       if (r.status !== "ok") return { kind: "fail", category: r.status === "rate-limited" ? "rate-limit" : "other", failures: [failure(`agent-${r.status}`, r.error ?? r.status)], signature: `implement:${r.status}`, data: retry };
@@ -595,7 +617,8 @@ export const acceptStep: StepDef = {
         requestSha: p.requestBody !== undefined ? ctx.ledger.putArtifact(p.requestBody) : undefined,
         bodySha: ctx.ledger.putArtifact(p.responseBody),
       }));
-      const kind = a.level === "manual" ? "manual" : a.level === "ui" ? "ui" : a.level === "job" ? "job" : "http";
+      // unit criteria have a locked test and no probe: "test", never "http"
+      const kind = a.level === "manual" ? "manual" : a.level === "ui" ? "ui" : a.level === "job" ? "job" : a.level === "unit" ? "test" : "http";
       const testsOk = tests.length > 0 && tests.every((t) => passed.has(t.testId));
       const probesOk = http.every((h) => h.status === h.expectStatus);
       return { ac: a.id, kind, testIds: tests.map((t) => t.testId), http, passed: kind === "manual" ? false : testsOk && probesOk };

@@ -10,6 +10,7 @@ import { clarifications, type ClarifyResult } from "./clarify.js";
 import { lintSpec, type LintResult } from "./speclint.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
 import { snapshotFor, toolsFor } from "./workspace.js";
+import { LANE, lightSpec } from "./lane.js";
 
 type Intent = z.infer<typeof IntentBody>;
 type CB = z.infer<typeof CurrentBehaviourBody>;
@@ -25,7 +26,24 @@ export const CriticOut = z.object({ findings: z.array(CriticFinding.extend({ rub
 export const RestateOut = z.object({ sentences: z.array(z.object({ n: z.number().int(), text: z.string() })) });
 export const RtAlignOut = z.object({ mapping: z.array(z.object({ n: z.number().int(), spans: z.array(z.string()), answers: z.array(z.string()) })) });
 
-export const MAX_REPAIRS = 3;
+export const MAX_REPAIRS = LANE.full.maxRepairs;
+
+/**
+ * The test lab can't test screens yet, so a ui criterion can't get a locked test: it becomes a
+ * manual check by a person (no model call), and the approval card says so.
+ */
+export function downgradeUi<T extends Spec>(spec: T): { spec: T; downgraded: string[] } {
+  const downgraded: string[] = [];
+  const requirements = spec.requirements.map((r) => ({
+    ...r,
+    acceptance: r.acceptance.map((a) => {
+      if (a.level !== "ui") return a;
+      downgraded.push(a.id);
+      return { ...a, level: "manual" as const };
+    }),
+  }));
+  return { spec: { ...spec, requirements }, downgraded };
+}
 
 // ---------- pure checks ----------
 
@@ -78,7 +96,9 @@ const DRAFT_RULES = `Senior engineer writing a behaviour spec a test author can 
 Format rules (checked by code):
 - Each requirement is one EARS sentence with exactly one "shall": "The <system> shall ...", "When <trigger>, the <system> shall ...", "While <state>, the <system> shall ...", "Where <feature>, the <system> shall ...", "If <condition>, then the <system> shall ...". IDs REQ-1, REQ-2...
 - op = ADDED | MODIFIED | REMOVED. MODIFIED and REMOVED copy their anchors exactly from the current-behaviour claims.
-- Each requirement has ≥1 acceptance criterion AC-<req>.<n> in Given/When/Then, observable at a public surface: an HTTP call, a job run, an outbound call to a named system, a DB row, or a screen. level: api | job | ui | manual.
+- Each requirement has ≥1 acceptance criterion AC-<req>.<n> in Given/When/Then, observable at a public surface: a public class method called directly, an HTTP call, a job run, an outbound call to a named system, a DB row, or a screen. level: unit | api | job | ui | manual.
+- Pick the LOWEST level that proves the behaviour: unit when the logic lives in one class (call its public method directly), api for an endpoint, job only when the behaviour exists only in a job run. The factory can't test screens yet: a ui criterion becomes a manual check by a person, so use it only for behaviour that exists only on a screen.
+- Change only what the request asks. Other places that might need the same change go in suggestions, not requirements.
 - sources: intent span IDs, answer IDs (Q-n) or assumption IDs (ASM-n).
 - NFRs need a metric with a number. List out-of-scope items. Every intent span is covered or explicitly out of scope.
 - No vague words (fast, robust, user-friendly, appropriate) without a number.
@@ -99,20 +119,21 @@ function draftSections(ctx: StepContext, i: ReturnType<typeof inputsOf>) {
 
 // ---------- steps ----------
 
-/** Three independent drafts: 2 × Opus + 1 × other family (Sonnet for a low-risk bugfix). */
+/** Three independent drafts: 2 × Opus + 1 × other family (Sonnet for a low-risk bugfix). The light lane writes one. */
 export const draftsStep: StepDef = {
-  key: "drafts", stage: "specify", templateVersion: "1",
+  key: "drafts", stage: "specify", templateVersion: "2",
   inputs: (s) => (s.steps.get("clarify-2")?.status === "completed"
     ? { intent: s.steps.get("intake")!.outputs[0], cb: s.steps.get("ground")!.outputs[0], c1: s.steps.get("clarify")!.outputs[0], c2: s.steps.get("clarify-2")!.outputs[0] } : undefined),
   async run(ctx) {
     const i = inputsOf(ctx);
     const lowBugfix = i.intent.changeClass === "bugfix" && i.intent.risk === "low";
-    const routes = lowBugfix ? ["specify", "specify", "specify"] : ["specify", "specify", "specify-other"];
-    const models = lowBugfix ? ["claude-sonnet-5", "claude-sonnet-5", "claude-sonnet-5"] : [undefined, undefined, undefined];
+    const light = lightSpec(i.intent);
+    const routes = (lowBugfix || light ? ["specify", "specify", "specify"] : ["specify", "specify", "specify-other"]).slice(0, light ? LANE.light.drafts : LANE.full.drafts);
+    const models = lowBugfix || light ? routes.map(() => "claude-sonnet-5") : [undefined, undefined, undefined];
     const rs = await Promise.all(routes.map((route, n) => think(ctx, {
       stage: "specify", route, model: models[n], cls: "read-large", budgetTokens: 30000, tools: ["read_file", "search"],
       repoTools: toolsFor(ctx), schema: DraftOut, maxTurns: 8,
-      sections: [...draftSections(ctx, i), S.task(`Write the spec (independent draft ${n + 1}).`)],
+      sections: [...draftSections(ctx, i), S.task(routes.length === 1 ? "Write the spec." : `Write the spec (independent draft ${n + 1}).`)],
     })));
     const bad = rs.find((r) => !r.ok);
     if (bad && !bad.ok) return bad.outcome;
@@ -123,10 +144,17 @@ export const draftsStep: StepDef = {
 };
 
 export const mergeStep: StepDef = {
-  key: "merge", stage: "merge", templateVersion: "1",
+  key: "merge", stage: "merge", templateVersion: "2",
   inputs: (s) => (s.steps.get("drafts")?.status === "completed" ? { drafts: s.steps.get("drafts")!.outputs[0] } : undefined),
   async run(ctx) {
     const { drafts } = requireOutput<{ drafts: z.infer<typeof DraftOut>[] }>(ctx.state, ctx.ledger, "drafts");
+    if (drafts.length === 1) {
+      // the light lane's single draft: nothing to merge, no model call; stability isn't measured
+      const { suggestions: _s, ...spec } = drafts[0]!;
+      void _s;
+      const alignment = spec.requirements.map((q) => ({ mergedReq: q.id, from: [`d1:${q.id}`] }));
+      return { kind: "done", outputs: { merged: ctx.ledger.putJson({ spec, alignment, conflicts: [], singleDraft: true }) }, data: { singleDraft: true, unstable: [] } };
+    }
     const r = await think(ctx, {
       stage: "merge", route: "merge", cls: "read-large", budgetTokens: 40000, tools: [], schema: MergeOut, maxTurns: 4,
       sections: [
@@ -147,7 +175,7 @@ When drafts conflict, keep both readings as separate requirements and add a conf
 
 interface Checks { lint: LintResult[]; critic: z.infer<typeof CriticOut>["findings"]; roundTrip: { droppedSpans: string[]; inventedCapabilities: string[] }; criticNote?: string }
 
-async function checkSpec(ctx: StepContext, spec: Spec, i: ReturnType<typeof inputsOf>): Promise<{ ok: true; checks: Checks } | { ok: false; outcome: StepOutcome }> {
+async function checkSpec(ctx: StepContext, spec: Spec, i: ReturnType<typeof inputsOf>, criticEffort?: "low" | "medium" | "high"): Promise<{ ok: true; checks: Checks } | { ok: false; outcome: StepOutcome }> {
   const snap = snapshotFor(ctx);
   const lint = lintSpec(spec, {
     spans: i.intent.spans.map((s) => s.id), changeClass: i.intent.changeClass,
@@ -155,7 +183,7 @@ async function checkSpec(ctx: StepContext, spec: Spec, i: ReturnType<typeof inpu
   });
   const [critic, restate] = await Promise.all([
     think(ctx, {
-      stage: "critic", route: "critic", cls: "read-large", budgetTokens: 30000, tools: [], schema: CriticOut,
+      stage: "critic", route: "critic", cls: "read-large", budgetTokens: 30000, tools: [], schema: CriticOut, effort: criticEffort,
       sections: [
         S.template("tpl", `Adversarial reviewer. Find defects in this spec; don't praise; don't rewrite it.
 Rubric: 1 conflicts between requirements 2 missing error, empty and permission paths 3 ACs not observable at a public surface 4 scope creep beyond the intent 5 claims about existing behaviour without anchors 6 state transitions and existing data 7 behaviour changes outside the requested scope (blast radius) 8 hardcoded identifiers that should be configuration.
@@ -201,12 +229,13 @@ function problems(c: Checks): string[] {
   ];
 }
 
-/** Final spec: check, repair (one drafter, merged spec + findings) up to 3 times. */
+/** Final spec: check, repair (one drafter, merged spec + findings) up to 3 times (once on the light lane). */
 export const specifyStep: StepDef = {
-  key: "specify", stage: "specify", templateVersion: "2",
+  key: "specify", stage: "specify", templateVersion: "3",
   inputs: (s) => (s.steps.get("merge")?.status === "completed" ? { merged: s.steps.get("merge")!.outputs[0], rejections: planRejections(s) } : undefined),
   async run(ctx) {
     const i = inputsOf(ctx);
+    const lane = lightSpec(i.intent) ? LANE.light : LANE.full;
     const merged = requireOutput<{ spec: Spec; conflicts: string[] }>(ctx.state, ctx.ledger, "merge");
     // after a rejection, start from the spec the human saw and repair it with their reason first
     const rejections = planRejections(ctx.state);
@@ -230,14 +259,18 @@ export const specifyStep: StepDef = {
       const stab = Object.fromEntries(spec.requirements.map((q) => [q.id, q.stability]));
       spec = { ...draft, requirements: draft.requirements.map((q) => ({ ...q, stability: stab[q.id] ?? 1 / 3 })) };
     }
+    const manualUi = new Set<string>();
     for (;;) {
-      const c = await checkSpec(ctx, spec, i);
+      const d = downgradeUi(spec);
+      spec = d.spec;
+      for (const id of d.downgraded) manualUi.add(id);
+      const c = await checkSpec(ctx, spec, i, lane.criticEffort);
       if (!c.ok) return c.outcome;
       checks = c.checks;
       const open = problems(checks);
-      if (!open.length || repairs >= MAX_REPAIRS) break;
+      if (!open.length || repairs >= lane.maxRepairs) break;
       repairs++;
-      ctx.log(`specify: repair ${repairs}/${MAX_REPAIRS} for ${open.length} findings`);
+      ctx.log(`specify: repair ${repairs}/${lane.maxRepairs} for ${open.length} findings`);
       const r = await think(ctx, {
         stage: "specify", route: "specify", cls: "read-large", budgetTokens: 30000, tools: ["read_file", "search"], repoTools: toolsFor(ctx), schema: DraftOut, maxTurns: 8,
         sections: [
@@ -262,7 +295,7 @@ export const specifyStep: StepDef = {
     const criticSha = ctx.ledger.putJson({ findings: checks!.critic, note: checks!.criticNote });
     return {
       kind: "done", outputs: { spec: specSha, critic: criticSha },
-      data: { repairs, openFindings: problems(checks!), conflicts: merged.conflicts },
+      data: { repairs, openFindings: problems(checks!), conflicts: merged.conflicts, manualUi: [...manualUi], lane: lane === LANE.light ? "light" : "full" },
     };
   },
 };

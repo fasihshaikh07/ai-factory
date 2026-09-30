@@ -65,3 +65,15 @@ export function checkCaps(state: RunState, maxAttempts = MAX_ATTEMPTS_PER_TASK):
   }
   return undefined;
 }
+
+/** Below this, a step isn't started with a smaller budget: it runs out, and the cap card follows. */
+export const MIN_STEP_USD = 0.25;
+
+/**
+ * A step's own spend limit, never more than what's left of the run's cost limit, so one step can't
+ * overshoot the run (the first real run's test writer had $4 with $2.45 left).
+ */
+export function stepBudgetUsd(state: RunState, limitUsd: number): number {
+  const left = currentCostCap(state) - state.costUsd;
+  return Math.max(MIN_STEP_USD, Math.min(limitUsd, left));
+}

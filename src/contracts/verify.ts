@@ -80,7 +80,8 @@ export const Timing = z.object({
 
 export const AcceptEvidence = z.object({
   ac: z.string(),
-  kind: z.enum(["http", "ui", "db", "job", "manual"]),
+  /** test: the locked test passed and there is no probe (unit criteria) */
+  kind: z.enum(["test", "http", "ui", "db", "job", "manual"]),
   http: z.array(z.object({ method: z.string(), path: z.string(), status: z.number(), bodySha: Sha })).optional(),
   ui: z.object({
     screenshotSha: Sha, traceSha: Sha.optional(),

@@ -11,6 +11,9 @@ import { argsSummary } from "../util/trace.js";
 
 const kTok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
 import { modelFor } from "./routing.js";
+import { stepBudgetUsd } from "../ledger/caps.js";
+import { replay } from "../ledger/state.js";
+import type { Effort } from "../runners/types.js";
 
 /** Tests replace this to script models. */
 export let providerFactory: (model: string) => Provider = defaultProvider;
@@ -32,6 +35,8 @@ export interface ThinkSpec<T> {
   maxTurns?: number;
   maxUsd?: number;
   timeoutSec?: number;
+  /** Use this effort instead of the route's (e.g. a lighter critic on the light lane). */
+  effort?: Effort;
 }
 
 export type ThinkResult<T> =
@@ -40,7 +45,8 @@ export type ThinkResult<T> =
 
 export async function think<T>(ctx: StepContext, spec: ThinkSpec<T>): Promise<ThinkResult<T>> {
   const routed = modelFor(ctx.project, spec.route, ctx.rung);
-  const { effort, singleFamilyNote } = routed;
+  const effort = spec.effort && ctx.rung === 0 ? spec.effort : routed.effort;
+  const { singleFamilyNote } = routed;
   const model = spec.model ?? routed.model;
   const sections = [...spec.sections];
   if (ctx.priorFailures.length) {
@@ -78,7 +84,8 @@ export async function think<T>(ctx: StepContext, spec: ThinkSpec<T>): Promise<Th
   ctx.log(`${spec.stage}: ${model} (effort ${effort}), pack ${pack.manifest.packTokens} tokens`);
   const r = await runner.run({
     step: spec.stage, model, effort, pack, schema: spec.schema,
-    limits: { maxTurns: spec.maxTurns ?? 8, maxUsd: spec.maxUsd ?? 2, timeoutSec: spec.timeoutSec ?? 900 },
+    // never more than what's left of the run's cost limit
+    limits: { maxTurns: spec.maxTurns ?? 8, maxUsd: stepBudgetUsd(replay(ctx.ledger.events()), spec.maxUsd ?? 2), timeoutSec: spec.timeoutSec ?? 900 },
   });
   if (r.status === "ok") return { ok: true, output: r.output as T, model, packSha, note: singleFamilyNote };
   // bad key, unknown model, rejected request: stop now instead of paying for retries

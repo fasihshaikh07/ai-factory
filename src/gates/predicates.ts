@@ -154,7 +154,9 @@ export const failsOnBase = defineGate<{ run1: TestRun; run2: TestRun; tests: Acc
       }
       for (const c of tests.characterisation) {
         const r = byId.get(c.testId);
-        if (r?.outcome !== "passed") fs.push(failure("characterisation", `Characterisation test ${c.testId} doesn't pass on base`, { testId: c.testId }));
+        // not a normal retry: a characterisation test describes behaviour that works TODAY, so failing on the
+        // old code means the test is wrong or needs something the lab doesn't have
+        if (r?.outcome !== "passed") fs.push(failure("characterisation", `Characterisation test ${c.testId} fails on the old code, so it doesn't describe today's behaviour: the test is wrong, or it needs a service or data the test lab doesn't have (an external API, seeded rows). Rewrite it as a small unit test next to the changed class, or drop it.${r?.message ? ` It failed with: ${r.message.slice(0, 200)}` : ""}`, { testId: c.testId }));
       }
     }
     if (!tests.tests.length) fs.push(failure("no-tests", "No acceptance tests were written"));

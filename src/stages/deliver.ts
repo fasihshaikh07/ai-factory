@@ -77,6 +77,8 @@ export const reviewStep: StepDef = {
 };
 
 // ---------- deliver ----------
+/** How a criterion's locked test proves it, in the PR text. */
+const PROOF: Record<string, string> = { unit: "unit test", api: "HTTP test + probe", job: "job test", ui: "screen test", manual: "manual" };
 export function prBody(ctx: Pick<StepContext, "state" | "runId">, a: { spec: Spec; plan: Plan; lock: { tests: { acId: string; testId: string }[]; familyNote?: string }; run: TestRun; review: { findings: { id: string; severity: string; text: string; category?: string; owasp?: string; file?: string; line?: number }[]; note?: string }; manifestHash: string; commits: string[] }): string {
   const flaky = a.run.results.filter((r) => r.flaky).map((r) => r.id);
   const security = a.review.findings.filter((f) => f.category === "security");
@@ -86,7 +88,10 @@ export function prBody(ctx: Pick<StepContext, "state" | "runId">, a: { spec: Spe
     ...(ctx.state.info.request ?? "").split("\n").map((l) => `> ${l}`),
     ``,
     `## Requirements → tests`,
-    ...a.spec.requirements.map((r) => `- **${r.id}** ${r.ears}\n${r.acceptance.map((c) => `  - ${c.id}: \`${a.lock.tests.find((t) => t.acId === c.id)?.testId ?? "manual"}\``).join("\n")}`),
+    ...a.spec.requirements.map((r) => `- **${r.id}** ${r.ears}\n${r.acceptance.map((c) => {
+      const test = a.lock.tests.find((t) => t.acId === c.id)?.testId;
+      return test ? `  - ${c.id} (${PROOF[c.level] ?? c.level}): \`${test}\`` : `  - ${c.id}: checked by a person (no automated test)`;
+    }).join("\n")}`),
     ``,
     `## Tasks`,
     ...a.plan.tasks.map((t) => `- ${t.id} ${t.title} (${t.reqs.join(", ")})`),

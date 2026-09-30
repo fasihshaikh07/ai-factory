@@ -18,6 +18,7 @@ import { describeSources } from "../sources/request.js";
 import { S, think, UNTRUSTED_NOTE } from "./think.js";
 import { snapshotFor, toolsFor } from "./workspace.js";
 import { uiSizeForCard } from "../design/card.js";
+import { LANE, lightSpec } from "./lane.js";
 
 type Intent = z.infer<typeof IntentBody>;
 type CB = z.infer<typeof CurrentBehaviourBody>;
@@ -83,7 +84,7 @@ export const groundStep: StepDef = {
     const map = buildRepoMap(snap.root, snap.files, { budgetTokens: 3000 }).map;
     const r = await think(ctx, {
       stage: "ground", route: "ground", cls: "read-large", budgetTokens: 40000, tools: ["read_file", "search", "repo_map"],
-      repoTools: toolsFor(ctx), schema: CurrentBehaviourBody, maxTurns: 12,
+      repoTools: toolsFor(ctx), schema: CurrentBehaviourBody, maxTurns: lightSpec(intent) ? LANE.light.groundTurns : LANE.full.groundTurns,
       sections: [
         S.template("tpl", `You are the grounding step. For each intent span, find the code that implements today's behaviour and describe it.
 Use search and read_file. Every claim needs at least one anchor: path, lineStart, lineEnd, an exact quote of those lines, and the symbol.
@@ -180,6 +181,10 @@ export function approvalCard(ctx: StepContext, a: { intent: Intent; spec: Spec; 
     `## Requirements`,
     ...a.spec.requirements.map((r) => `- **${r.id}** (${r.op})${r.stability !== undefined && r.stability < 2 / 3 ? " ⚠ only one draft had this" : ""} ${r.ears}\n${r.acceptance.map((c) => `  - ${c.id} [${c.level}] Given ${c.given}; when ${c.when}; then ${c.then}`).join("\n")}`),
     ``,
+    ...(() => {
+      const manual = a.spec.requirements.flatMap((r) => r.acceptance.filter((c) => c.level === "manual").map((c) => c.id));
+      return manual.length ? [`Checked by a person, not by a test: ${manual.join(", ")} (screens and manual checks aren't automated yet)`, ``] : [];
+    })(),
     `Not changing: ${a.spec.outOfScope.join("; ") || "(none listed)"}`,
     ``,
     `## Files the plan will touch (${files.length})`,

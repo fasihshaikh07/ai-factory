@@ -73,7 +73,7 @@ export async function checklist(runId: string): Promise<Check[]> {
   const d = s.steps.get("discover")?.data as { tests?: number; knownFailures?: number } | undefined;
   add("Baseline: restore through the feed proxy, offline build, tests next to Postgres", step("discover") && d?.tests === 2 && d.knownFailures === 0,
     `${d?.tests ?? 0} tests, ${d?.knownFailures ?? "?"} failing`);
-  add("Spec: intake, grounding, clarify, 3 drafts, merge, lint, critic, round trip", ["intake", "ground", "clarify", "drafts", "merge", "specify"].every(step));
+  add("Spec: intake, grounding, clarify, drafts, merge, lint, critic, round trip", ["intake", "ground", "clarify", "drafts", "merge", "specify"].every(step));
   add("Plan and approval card (approved with its hash)", step("plan") && step("approve") && events.some((e) => e.type === "human.decided"));
   add("Stub commit on the run's worktree", step("stub-commit"));
   add("Test writer in the coding container; its tests fail on the old code twice, then locked",

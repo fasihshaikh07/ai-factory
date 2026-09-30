@@ -4,6 +4,27 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Ledger } from "./ledger/ledger.js";
 import { replay, splitKey, statusLabel, type RunState } from "./ledger/state.js";
+import { readTrace, type TraceEvent } from "./util/trace.js";
+
+/**
+ * Per step, seconds spent in model calls, in the coding agent's container, and in the test lab.
+ * Model time is the sum of turn durations; agent time runs from "agent started" to "agent finished";
+ * lab time adds up the durations each lab phase reports ("lab: build ok (62s)").
+ */
+export function timeSplit(trace: TraceEvent[]): Map<string, { modelSec: number; agentSec: number; labSec: number }> {
+  const out = new Map<string, { modelSec: number; agentSec: number; labSec: number }>();
+  const get = (step: string) => { let t = out.get(step); if (!t) { t = { modelSec: 0, agentSec: 0, labSec: 0 }; out.set(step, t); } return t; };
+  const agentStart = new Map<string, number>();
+  for (const e of trace) {
+    if (!e.step) continue;
+    const t = get(e.step);
+    if (e.kind === "model.turn") t.modelSec += Number(e.data?.ms ?? 0) / 1000;
+    else if (e.kind === "agent.start") agentStart.set(e.step, Date.parse(e.ts));
+    else if (e.kind === "agent.end" && agentStart.has(e.step)) { t.agentSec += (Date.parse(e.ts) - agentStart.get(e.step)!) / 1000; agentStart.delete(e.step); }
+    else if (e.kind.startsWith("lab.")) { const m = /\((\d+)s\)/.exec(e.msg); if (m) t.labSec += Number(m[1]); }
+  }
+  return out;
+}
 
 export interface StepScore {
   step: string;
@@ -19,6 +40,8 @@ export interface StepScore {
   tokens: { input: number; output: number; cached: number };
   costUsd: number;
   activeSec: number;
+  /** where the step's time went, from the run trace: model calls, the coding agent's container, the test lab */
+  time?: { modelSec: number; agentSec: number; labSec: number };
   gates: { passed: number; failed: number; failedIds: string[] };
   human: { cards: number; decisions: string[]; answersChanged?: number; questionsAsked?: number };
 }
@@ -132,6 +155,9 @@ export function scoreRun(ledger: Ledger): RunScore {
   }
 
   const steps = [...scores.values()].filter((s) => s.attempts > 0 || s.costUsd > 0 || s.human.cards > 0);
+  let split = new Map<string, { modelSec: number; agentSec: number; labSec: number }>();
+  try { split = timeSplit(readTrace(ledger.dir)); } catch { /* no trace: no split */ }
+  for (const s of steps) { const t = split.get(s.step); if (t && (t.modelSec || t.agentSec || t.labSec)) s.time = { modelSec: Math.round(t.modelSec), agentSec: Math.round(t.agentSec), labSec: Math.round(t.labSec) }; }
   const done = steps.filter((s) => s.outcome === "completed");
   return {
     runId: state.info.runId,
@@ -165,7 +191,7 @@ export function formatRun(r: RunScore): string {
     `Cost ${money(r.costUsd)} · active ${r.activeMin.toFixed(1)} min · first-time pass ${(r.firstTimePassRate * 100).toFixed(0)}% of finished steps`,
     r.topCost.length ? `Most expensive: ${r.topCost.map((t) => `${t.step} ${money(t.costUsd)}`).join(", ")}` : "",
     "",
-    `${"step".padEnd(20)} ${"outcome".padEnd(11)} ${"1st?".padEnd(5)} ${"tries".padEnd(5)} ${"cost".padStart(7)} ${"time".padStart(7)} ${"tokens in/out".padStart(14)}  gates  notes`,
+    `${"step".padEnd(20)} ${"outcome".padEnd(11)} ${"1st?".padEnd(5)} ${"tries".padEnd(5)} ${"cost".padStart(7)} ${"time".padStart(7)} ${"model/agent/lab".padStart(16)} ${"tokens in/out".padStart(14)}  gates  notes`,
   ];
   for (const s of r.steps) {
     const notes = [
@@ -175,7 +201,7 @@ export function formatRun(r: RunScore): string {
       s.human.decisions.length ? `you: ${s.human.decisions.join(", ")}` : "",
       s.retryReasons.length ? `why retried: ${s.retryReasons[0]}` : "",
     ].filter(Boolean).join("; ");
-    lines.push(`${s.step.padEnd(20)} ${s.outcome.padEnd(11)} ${(s.firstTimePass ? "yes" : "no").padEnd(5)} ${String(s.attempts).padEnd(5)} ${money(s.costUsd).padStart(7)} ${`${Math.round(s.activeSec)}s`.padStart(7)} ${`${kTok(s.tokens.input + s.tokens.cached)}/${kTok(s.tokens.output)}`.padStart(14)}  ${`${s.gates.passed}✓${s.gates.failed ? ` ${s.gates.failed}✗` : ""}`.padEnd(6)} ${notes}`);
+    lines.push(`${s.step.padEnd(20)} ${s.outcome.padEnd(11)} ${(s.firstTimePass ? "yes" : "no").padEnd(5)} ${String(s.attempts).padEnd(5)} ${money(s.costUsd).padStart(7)} ${`${Math.round(s.activeSec)}s`.padStart(7)} ${(s.time ? `${s.time.modelSec}/${s.time.agentSec}/${s.time.labSec}s` : "-").padStart(16)} ${`${kTok(s.tokens.input + s.tokens.cached)}/${kTok(s.tokens.output)}`.padStart(14)}  ${`${s.gates.passed}✓${s.gates.failed ? ` ${s.gates.failed}✗` : ""}`.padEnd(6)} ${notes}`);
   }
   return lines.filter((l, i) => l !== "" || i === 4).join("\n");
 }

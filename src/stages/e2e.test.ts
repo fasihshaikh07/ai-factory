@@ -46,6 +46,8 @@ function makeRepo(): string {
 const U = { inputTokens: 2000, outputTokens: 300, cacheRead: 0, cacheWrite: 0 };
 /** Three tasks, one criterion each: Greeter says Hello, Farewell says Bye, Third says Three. */
 let multi = false;
+/** intake's risk: "low" takes the light lane, "medium" the full one */
+let intakeRisk = "low";
 const MULTI_FILES = ["src/Api/Greeter.cs", "src/Api/Farewell.cs", "src/Api/Third.cs"];
 const MULTI_TESTS = ["AC_1_1_GreetsWithHello", "AC_2_1_SaysBye", "AC_3_1_CountsThree"];
 function multiAnswer(system: string): unknown {
@@ -68,7 +70,7 @@ function multiAnswer(system: string): unknown {
 }
 function answerFor(system: string, allowMulti = true): unknown {
   if (multi && allowMulti) { const m = multiAnswer(system); if (m !== undefined) return m; }
-  if (system.includes("intake step")) return { source: "cli", spans: [{ id: "I-1", text: "greet with Hello" }], changeClass: "feature", risk: "low", riskTags: [], rigor: "light", touchesUi: false };
+  if (system.includes("intake step")) return { source: "cli", spans: [{ id: "I-1", text: "greet with Hello" }], changeClass: "feature", risk: intakeRisk, riskTags: [], rigor: "light", touchesUi: false };
   if (system.includes("grounding step")) return { claims: [{ id: "C-1", text: "Greeter says Hi", spans: ["I-1"], anchors: [{ path: "src/Api/Greeter.cs", lineStart: 4, lineEnd: 4, quote: 'public string Greet(string name) => "Hi " + name;', symbol: "Greeter.Greet" }] }], notFound: [] };
   if (system.includes("independently reading a change request")) return { spans: [{ id: "I-1", behaviours: [{ text: system.length % 2 ? "Hello Ann" : "Hello, Ann!", kind: "happy" }, { text: "empty name returns Hello", kind: "error" }] }] };
   if (system.includes("Three engineers independently")) return { differences: [{ id: "D-1", span: "I-1", topic: "punctuation", readings: [{ sketch: 1, behaviour: 0, summary: "Hello Ann" }, { sketch: 2, behaviour: 0, summary: "Hello, Ann!" }] }] };
@@ -113,6 +115,8 @@ class Lab implements ContainerRuntime {
   edits: Record<string, Record<string, string>[]> = {};
   /** multi: what each implement attempt found before it edited */
   seen: { scope: string; head: string; task: string; files: Record<string, string | null> }[] = [];
+  /** every coding-agent job as the container got it (model, limits, scope) */
+  jobs: { model: string; maxTurns: number; maxUsd: number; fileScope: string[]; system: string }[] = [];
   async version() { return "fake"; }
   async create(s: ContainerSpec) { const id = `c${++this.n}`; this.specs.set(id, s); return id; }
   async start() {}
@@ -122,6 +126,7 @@ class Lab implements ContainerRuntime {
     if (s.role === "agent") {
       const work = mount("/work")!;
       const job = JSON.parse(readFileSync(mount("/job/in.json")!, "utf8")) as { fileScope: string[] };
+      this.jobs.push(job as never);
       const out = mount("/job/out")!;
       if (multi && job.fileScope.includes("tests/**")) {
         writeFileSync(join(work, "tests/Api.Tests/GreetTests.cs"), "namespace Api.Tests; public class GreetTests { }\n");
@@ -226,6 +231,7 @@ beforeEach(() => {
   setProviderFactory(() => provider);
   modelCalls.length = 0;
   multi = false;
+  intakeRisk = "low";
 });
 
 describe("brownfield slice end to end (fakes)", () => {
@@ -481,4 +487,38 @@ describe("implement loop across tasks (fakes)", () => {
     expect(t1[1]!.files["src/Api/Greeter.cs"]).toBe("SYNTAX");
     expect(t1[1]!.task).toContain("Your previous change");
   }, 30_000);
+});
+
+describe("light and full lanes (fakes)", () => {
+  async function deliver() {
+    const runId = await createRun("Greet people with Hello instead of Hi", "demo", "tester");
+    const ledger = await toApproval(runId);
+    const card = replay(ledger.events()).openCard!;
+    await decide(ledger, { decision: "approve", hashPrefix: card.artifactSha.slice(0, 6), by: "ahsan" });
+    const r = await execute(runId);
+    expect(r.status, r.message).toBe("delivered");
+    return replay(ledger.events());
+  }
+  const writer = () => lab.jobs.find((j) => j.fileScope.includes("tests/**"))!;
+
+  it("a small low-risk change: one draft, no merge call, a Sonnet test writer with tight limits", async () => {
+    const s = await deliver();
+    expect(s.steps.get("drafts")!.data!.models).toEqual(["claude-sonnet-5"]);
+    expect(s.steps.get("merge")!.data!.singleDraft).toBe(true);
+    expect(s.steps.get("specify")!.data!.lane).toBe("light");
+    expect(writer()).toMatchObject({ model: "claude-sonnet-5", maxTurns: 25 });
+    expect(writer().maxUsd).toBeLessThanOrEqual(4);
+    expect(writer().system).toContain("At most 2 characterisation tests");
+    expect(writer().system).toContain('Don\'t run "dotnet test"');
+  });
+
+  it("medium risk keeps the full lane: 3 drafts, a merge, 3 reworks allowed, an Opus test writer with $4 and 60 turns", async () => {
+    intakeRisk = "medium";
+    const s = await deliver();
+    expect(s.steps.get("drafts")!.data!.models).toHaveLength(3);
+    expect(s.steps.get("merge")!.data!.singleDraft).toBeUndefined();
+    expect(s.steps.get("specify")!.data!.lane).toBe("full");
+    expect(writer()).toMatchObject({ model: "claude-opus-5-5", maxTurns: 60, maxUsd: 4 });
+    expect(writer().system).not.toContain("At most 2 characterisation tests");
+  });
 });
