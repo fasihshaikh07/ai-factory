@@ -19,7 +19,7 @@ describe("light lane", () => {
 
   it("the full lane keeps what every run had before", () => {
     expect(LANE.full).toMatchObject({ drafts: 3, maxRepairs: 3, groundTurns: 12, testWriterTurns: 60, criticEffort: undefined });
-    expect(LANE.light).toMatchObject({ drafts: 1, maxRepairs: 1, groundTurns: 6, testWriterTurns: 25, criticEffort: "medium", maxCharacterisation: 2 });
+    expect(LANE.light).toMatchObject({ drafts: 1, maxRepairs: 1, groundTurns: 8, testWriterTurns: 25, criticEffort: "medium", maxCharacterisation: 2 });
   });
 });
 

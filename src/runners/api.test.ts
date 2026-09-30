@@ -107,4 +107,15 @@ describe("audit fixes", () => {
     expect(supportsEffort("claude-opus-5-5")).toBe(true);
     expect(supportsEffort("gpt-5.5")).toBe(false);
   });
+
+  it("tells the model when its next turn is the last one", async () => {
+    const read = (id: string) => ({ calls: [{ id, name: "read_file", input: { path: "x.cs" } }], text: "", stop: "tool_use" as const, usage: U });
+    const { provider, seen } = scripted([read("a"), read("b"), call("submit_result", { changeClass: "bugfix", spans: ["x"] })]);
+    const tools = { specs: [{ name: "read_file", description: "d", input_schema: {} }], call: () => "file text" };
+    const r = await new ApiRunner({ provider: () => provider, tools: tools as never }).run(job({ pack: pack(["read_file"]), limits: { maxTurns: 3, maxUsd: 1, timeoutSec: 60 } }));
+    expect(r.status).toBe("ok");
+    expect(seen.toolResults[0]![0]!.content).toBe("file text");
+    expect(seen.toolResults[1]![0]!.content).toContain("Your next turn is your last one: call submit_result now");
+  });
 });
+

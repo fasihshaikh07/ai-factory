@@ -325,6 +325,11 @@ export class ApiRunner implements Runner {
       report(schemaError);
       if (output !== undefined) return done("ok", { output });
       if (reasks > MAX_REASKS) return done("bad-output", { error: "Output failed the schema after 2 re-asks" });
+      // one turn left: say so, so the model answers with what it has instead of running out mid-search
+      if (turn === job.limits.maxTurns - 2 && results.length) {
+        const last = results[results.length - 1]!;
+        last.content += `\n\n[factory] Your next turn is your last one: call ${SUBMIT} now with the best answer you have.`;
+      }
       convo.toolResults(results);
     }
     return done("bad-output", { error: `No result after ${job.limits.maxTurns} turns` });

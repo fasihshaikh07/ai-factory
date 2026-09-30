@@ -18,6 +18,6 @@ export function lightBuild(intent: Intent, complexity: string | undefined): bool
 
 /** Limits per lane. The full lane is what every run used before the light lane existed. */
 export const LANE = {
-  light: { drafts: 1, maxRepairs: 1, criticEffort: "medium" as const, groundTurns: 6, testWriterTurns: 25, maxCharacterisation: 2 },
+  light: { drafts: 1, maxRepairs: 1, criticEffort: "medium" as const, groundTurns: 8, testWriterTurns: 25, maxCharacterisation: 2 },
   full: { drafts: 3, maxRepairs: 3, criticEffort: undefined, groundTurns: 12, testWriterTurns: 60, maxCharacterisation: undefined },
 };
