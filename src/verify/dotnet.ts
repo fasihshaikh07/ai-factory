@@ -58,10 +58,8 @@ export interface ProduceOutput {
   accept?: AcceptResult;
 }
 
-/** The web project to boot: the configured one, else the first csproj using Sdk.Web. */
-export function findWebProject(src: string, configured?: string): string | undefined {
-  if (configured) return configured;
-  // the lab copy has no .git, so walk the folders
+/** Repo-relative paths of files matching `want`; the lab copy has no .git, so walk the folders. */
+function findFiles(src: string, want: (name: string) => boolean): string[] {
   const found: string[] = [];
   const walk = (dir: string, rel: string, depth: number) => {
     if (depth > 5) return;
@@ -69,11 +67,39 @@ export function findWebProject(src: string, configured?: string): string | undef
       if (["bin", "obj", "node_modules", ".git"].includes(e.name)) continue;
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) walk(join(dir, e.name), r, depth + 1);
-      else if (e.name.endsWith(".csproj")) found.push(r);
+      else if (want(e.name)) found.push(r);
     }
   };
   walk(src, "", 0);
-  return found.sort().find((f) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(readFileSync(join(src, f), "utf8")) && !/test/i.test(f));
+  return found.sort();
+}
+
+/** The web project to boot: the configured one, else the first csproj using Sdk.Web. */
+export function findWebProject(src: string, configured?: string): string | undefined {
+  if (configured) return configured;
+  return findFiles(src, (n) => n.endsWith(".csproj")).find((f) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(readFileSync(join(src, f), "utf8")) && !/test/i.test(f));
+}
+
+const isSolution = (n: string) => n.endsWith(".sln") || n.endsWith(".slnx");
+const isProject = (n: string) => /\.(cs|fs|vb)proj$/.test(n);
+
+/**
+ * What restore/build/test point at: the configured solution; nothing when the repo root holds a
+ * solution or project (dotnet finds it); else the shallowest solution, else the only project.
+ */
+export function findBuildTarget(src: string, configured?: string): string | undefined {
+  if (configured) return configured;
+  if (readdirSync(src).some((n) => isSolution(n) || isProject(n))) return undefined;
+  const depth = (f: string) => f.split("/").length;
+  const slns = findFiles(src, isSolution);
+  if (slns.length) {
+    const top = slns.filter((f) => depth(f) === Math.min(...slns.map(depth)));
+    if (top.length === 1) return top[0];
+    throw new Error(`Several solutions and none at the repo root (${top.join(", ")}). Set dotnet.solution in the project config.`);
+  }
+  const projs = findFiles(src, isProject);
+  if (projs.length <= 1) return projs[0];
+  throw new Error(`No solution file and several projects (${projs.slice(0, 5).join(", ")}${projs.length > 5 ? ", …" : ""}). Add a .sln to the repo or set dotnet.solution in the project config.`);
 }
 
 /** "body\nSTATUS" from curl -w → { body, status } */
@@ -130,7 +156,7 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
   for (const d of [src, nuget, resBuild, resTest]) mkdirSync(d, { recursive: true });
   const live = new Set<string>();
   const logs = { restore: "", build: "", test: "" };
-  const sln = project.dotnet.solution ? [project.dotnet.solution] : [];
+  let sln: string[] = [];
 
   const launch = async (spec: Omit<ContainerSpec, "labels" | "user"> & { user?: string }): Promise<string> => {
     const id = await rt.create({ user: hostUser(), ...spec, labels: { run: inp.runId, key: inp.key } });
@@ -150,6 +176,8 @@ export async function produceDotnetTests(inp: ProduceInput): Promise<ProduceOutp
     const phase = (name: string, msg: string, data?: Record<string, unknown>) => inp.onPhase?.(name, msg, data);
     const secs = (from: number) => `${((Date.now() - from) / 1000).toFixed(0)}s`;
     copyTree(inp.repo, inp.commit, src);
+    const target = findBuildTarget(src, project.dotnet.solution);
+    if (target) sln = [target];
     phase("copy", `lab: copied ${inp.commit.slice(0, 10)} (${secs(t0)})`);
     const tRestore = Date.now();
     const toolVersions: Record<string, string> = { sdkImage: await rt.imageDigest(project.dotnet.sdkImage) };

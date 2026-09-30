@@ -5,7 +5,8 @@ baseBranch: main
 stack: dotnet
 dotnet:
   sdkImage: mcr.microsoft.com/dotnet/sdk:8.0   # match the repo's global.json
-  solution: ShopApi.sln                     # optional
+  solution: ShopApi.sln                     # optional; a .sln or .csproj path from the repo root. Leave out if
+                                            # the root has one, or there's a single one below it (auto-detected)
   # runnerArgs: ["xUnit.ParallelizeTestCollections=false"]   # extra test-runner settings
 database:                          # throwaway Postgres for tests (never your real DB)
   image: postgres:16-alpine

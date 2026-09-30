@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ProjectConfig } from "../config/project.js";
-import { filterFor, parseBuildErrors, produceDotnetTests } from "./dotnet.js";
+import { filterFor, findBuildTarget, parseBuildErrors, produceDotnetTests } from "./dotnet.js";
 import type { ContainerRuntime, ContainerSpec } from "./runtime.js";
 import { classifyFailure, parseTrx } from "./trx.js";
 import { buildTestRun, classify, rerunCandidates, validate } from "./validate.js";
@@ -89,6 +89,23 @@ describe("helpers", () => {
   it("builds a test filter from IDs", () => {
     expect(filterFor(["P::Ns.C.A(x: 1)", "P::Ns.C.B"])).toBe("FullyQualifiedName=Ns.C.A|FullyQualifiedName=Ns.C.B");
   });
+
+  it("finds what restore/build/test point at", () => {
+    const tree = (files: string[]) => {
+      const d = mkdtempSync(join(tmpdir(), "factory-target-"));
+      for (const f of files) { mkdirSync(dirname(join(d, f)), { recursive: true }); writeFileSync(join(d, f), ""); }
+      return d;
+    };
+    expect(findBuildTarget(tree(["backend/Api/Api.csproj"]), "Configured.sln")).toBe("Configured.sln");
+    expect(findBuildTarget(tree(["App.sln", "src/Api/Api.csproj"]))).toBeUndefined();
+    expect(findBuildTarget(tree(["Api.csproj"]))).toBeUndefined();
+    expect(findBuildTarget(tree(["README.md"]))).toBeUndefined();
+    expect(findBuildTarget(tree(["backend/Api/Api.csproj", "frontend/package.json"]))).toBe("backend/Api/Api.csproj");
+    expect(findBuildTarget(tree(["backend/App.slnx", "backend/deep/Other.sln", "backend/Api/Api.csproj"]))).toBe("backend/App.slnx");
+    expect(findBuildTarget(tree(["backend/Api/bin/Debug/Copy.csproj", "backend/Api/Api.csproj"]))).toBe("backend/Api/Api.csproj");
+    expect(() => findBuildTarget(tree(["a/A.sln", "b/B.sln"]))).toThrow(/dotnet\.solution/);
+    expect(() => findBuildTarget(tree(["src/Api/Api.csproj", "tests/T/T.csproj"]))).toThrow(/dotnet\.solution/);
+  });
 });
 
 /** A fake runtime: records specs and writes a TRX into the results mount of test containers. */
@@ -121,11 +138,11 @@ class FakeRuntime implements ContainerRuntime {
   async imageDigest(i: string) { return `${i}@sha256:x`; }
 }
 
-function repoWithCommit(): { repo: string; commit: string } {
+function repoWithCommit(files = ["App.sln"]): { repo: string; commit: string } {
   const repo = mkdtempSync(join(tmpdir(), "factory-repo-"));
   const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
   execFileSync("git", ["init", "-q"], { cwd: repo, env });
-  writeFileSync(join(repo, "App.sln"), "");
+  for (const f of files) { mkdirSync(dirname(join(repo, f)), { recursive: true }); writeFileSync(join(repo, f), ""); }
   execFileSync("git", ["add", "."], { cwd: repo, env });
   execFileSync("git", ["commit", "-q", "-m", "i"], { cwd: repo, env });
   return { repo, commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim() };
@@ -157,6 +174,18 @@ describe(".NET producer (fake runtime)", () => {
     expect(build.env.ConnectionStrings__Default).toBeUndefined();
     expect(build.mounts.find((m) => m.dst === "/nuget")?.ro).toBe(true);
     expect(rt.removed.sort()).toEqual([...rt.specs.keys()].sort());
+    expect(specs.find((s) => s.role === "restore")!.cmd).toEqual(["dotnet", "restore"]);
+  });
+
+  it("points restore, build and test at the project when the repo root has none", async () => {
+    const { repo, commit } = repoWithCommit(["backend/Api/Api.csproj", "frontend/package.json"]);
+    const rt = new FakeRuntime({ trx: trx([{ name: "A", outcome: "Passed" }]) });
+    await produceDotnetTests({
+      runId: "r1", key: "k", repo, commit, stage: "task", project, rt,
+      exp: { expectPass: ["Shop.Tests::Shop.Tests.CheckoutTests.A"], expectFail: [], compareToBaseline: [] },
+    });
+    const cmds = [...rt.specs.values()].filter((s) => s.role !== "db").map((s) => s.cmd.slice(0, 3));
+    expect(cmds).toEqual([["dotnet", "restore", "backend/Api/Api.csproj"], ["dotnet", "build", "backend/Api/Api.csproj"], ["dotnet", "test", "backend/Api/Api.csproj"]]);
   });
 
   it("reports a failed build as compile failures", async () => {
